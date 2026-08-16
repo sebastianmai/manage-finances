@@ -12,7 +12,8 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8080
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     command: npm run dev -- --host 0.0.0.0
 
   backend:
@@ -26,9 +27,12 @@ services:
       - ./backend:/app
     environment:
       - PORT=8080
+    depends_on:
+      database:
+        condition: service_started
 
   database:
-    image: postgres:latest
+    image: postgres:16-alpine
     container_name: database
     ports:
       - "5432:5432"
@@ -36,5 +40,16 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: manage_finances
+      PGDATA: /var/lib/postgresql/data
     volumes:
-      - ./db-data/:/var/lib/postgresql/data/
+      - ./database-data:/var/lib/postgresql
+
+  pgadmin:
+    image: dpage/pgadmin4
+    ports:
+      - "8090:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    depends_on:
+      - database
