@@ -6,7 +6,12 @@
   --color-ui-light-bg: var(--light-bg);
   --color-ui-text: var(--text);
   --color-ui-btn: var(--btn);
+  --color-ui-btn-warn: var(--btn-warn);
   --color-ui-btn-text: var(--btn-text);
+}
+
+:root{
+  --btn-warn: #dc2626;
 }
 
 [data-theme="dark"] {

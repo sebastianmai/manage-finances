@@ -1,8 +1,9 @@
 import sun from '../assets/sun_rm.svg';
 import moon from '../assets/moon_rm.svg';
+import { NavLink } from 'react-router-dom';
 
 const navigation = [
-    { name: 'Dashboard', href: '#', current: true },
+    { name: 'Home', href: '/', current: true },
 ]
 
 export default function Navbar({ theme, setTheme }) {
@@ -27,12 +28,15 @@ export default function Navbar({ theme, setTheme }) {
                             key={item.name}
                             type="button"
                             className="px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold"
+                            onClick={() => { console.log(`Navigating to ${item.name}`) }}
                         >
-                            {item.name}
+                            <NavLink to={item.href}>{item.name}</NavLink>
                         </button>
                     ))}
                 </div>
-
+                <button className="ml-auto px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
+                    <NavLink to="/sign-up">Sign Up</NavLink>
+                </button>
                 <button className="px-4 py-2" onClick={handleClick}>
                     <img
                         src={theme === 'dark' ? sun : moon}
