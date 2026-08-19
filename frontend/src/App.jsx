@@ -1,6 +1,9 @@
 import './App.css'
 import Navbar from './components/Navbar'
+import Signup from './components/Signup'
+import Home from './components/Home'
 import {useState, useEffect} from 'react'
+import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
 
 function App() {
 
@@ -11,9 +14,18 @@ function App() {
   }, [theme]);
 
   return (
-    <div className='min-h-screen bg-ui-bg flex flex-col'>
-      <Navbar theme={theme} setTheme={setTheme}></Navbar>
-    </div>
+    <Router>
+      <div className='min-h-screen bg-ui-bg flex flex-col'>
+        <Navbar theme={theme} setTheme={setTheme}></Navbar>
+        <div className='flex justify-center m-10'>
+          <Routes>
+            <Route path="/sign-up" element={<Signup />} />
+            <Route path="/" element={<Home />} />
+          </Routes>
+        </div>
+        
+      </div>
+    </Router>
   )
 }
 
