@@ -29,9 +29,9 @@ export default function Login() {
                 </div>
                 <hr className="my-5 mx-3 border-t border-ui-text opacity-40"></hr>
                 <div className="flex justify-center text-ui-text">
-                    <a className="text-ui-text">
+                    <p className="text-ui-text">
                         No account yet? <NavLink to="/sign-up" className="text-ui-signup-btn underline">Sign up here</NavLink>
-                    </a>
+                    </p>
                 </div>
                 
             </div>
