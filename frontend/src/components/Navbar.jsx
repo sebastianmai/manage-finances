@@ -35,7 +35,7 @@ export default function Navbar({ theme, setTheme }) {
                     ))}
                 </div>
                 <button className="ml-auto px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
-                    <NavLink to="/sign-up">Sign Up</NavLink>
+                    <NavLink to="/login">Log In</NavLink>
                 </button>
                 <button className="px-4 py-2" onClick={handleClick}>
                     <img

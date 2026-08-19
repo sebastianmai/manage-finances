@@ -1,6 +1,6 @@
 import {NavLink} from 'react-router-dom';
 
-export default function Signup() {
+export default function Login() {
 
 
     const handleSubmit = async () => {};
@@ -20,16 +20,18 @@ export default function Signup() {
                         Password:
                     </label>
                     <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="password" id="password" placeholder="Enter your password" />
-                        <label htmlFor="passwordConfirmation">
-                            Repeat Confirmation:
-                        </label>
-                        <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="password" id="passwordConfirmation" placeholder="Repeat your password" />
                 </form>
                 <div className="mt-4 flex justify-between text-ui-btn-text">
                     <button className="bg-ui-btn-warn font-bold py-2 px-4 rounded-md">
-                        <NavLink to="/login">Cancel</NavLink>
+                        <NavLink to="/">Cancel</NavLink>
                     </button>
-                    <button className="bg-ui-btn  font-bold py-2 px-4 rounded-md">Sign Up</button>
+                    <button className="bg-ui-btn  font-bold py-2 px-4 rounded-md">Log In</button>
+                </div>
+                <hr className="my-5 mx-3 border-t border-ui-text opacity-40"></hr>
+                <div className="flex justify-center text-ui-text">
+                    <a className="text-ui-text">
+                        No account yet? <NavLink to="/sign-up" className="text-ui-btn">Sign up here</NavLink>
+                    </a>
                 </div>
                 
             </div>
