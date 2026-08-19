@@ -8,10 +8,12 @@
   --color-ui-btn: var(--btn);
   --color-ui-btn-warn: var(--btn-warn);
   --color-ui-btn-text: var(--btn-text);
+  --color-ui-signup-btn: var(--signup-btn);
 }
 
 :root{
   --btn-warn: #dc2626;
+  --signup-btn: #2563eb;
 }
 
 [data-theme="dark"] {
