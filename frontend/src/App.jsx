@@ -1,7 +1,10 @@
 import './App.css'
+
 import Navbar from './components/Navbar'
 import Signup from './components/Signup'
 import Home from './components/Home'
+import Login from './components/Login'
+
 import {useState, useEffect} from 'react'
 import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
 
@@ -20,6 +23,7 @@ function App() {
         <div className='flex justify-center m-10'>
           <Routes>
             <Route path="/sign-up" element={<Signup />} />
+            <Route path="/login" element={<Login />} />
             <Route path="/" element={<Home />} />
           </Routes>
         </div>
