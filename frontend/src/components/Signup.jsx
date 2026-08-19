@@ -1,8 +1,19 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 
+const setdefaultUser = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  password: "",
+  password_confirmation: "",
+};
+
 export default function Signup() {
   const navigate = useNavigate();
+
+  const [focusedField, setFocusedField] = useState(null);
+
   const [user, setUser] = useState({
     first_name: "",
     last_name: "",
@@ -10,6 +21,14 @@ export default function Signup() {
     password: "",
     password_confirmation: "",
   });
+
+  const passwordRequirements = {
+    length: user.password.length >= 8 && user.password.length <= 24,
+    lowercase: /[a-z]/.test(user.password),
+    uppercase: /[A-Z]/.test(user.password),
+    number: /[0-9]/.test(user.password),
+    special: /[!@#$%]/.test(user.password),
+  };
 
   const handleChange = (e) => {
     setUser({
@@ -28,7 +47,6 @@ export default function Signup() {
 
     try {
       let body = JSON.stringify(user);
-      console.log("Sending request with body:", body);
 
       const response = await fetch("http://localhost:8080/signup", {
         method: "POST",
@@ -39,7 +57,9 @@ export default function Signup() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to sign up");
+        setUser(setdefaultUser);
+        console.error("Failed to sign up:", response.statusText);
+        return;
       }
       const data = await response.json();
       console.log("User signed up successfully:", data);
@@ -68,6 +88,7 @@ export default function Signup() {
                 placeholder="First name"
                 value={user.first_name}
                 onChange={handleChange}
+                autoComplete="first-name"
               />
             </div>
 
@@ -82,6 +103,7 @@ export default function Signup() {
                 placeholder="Last name"
                 value={user.last_name}
                 onChange={handleChange}
+                autoComplete="last-name"
               />
             </div>
           </div>
@@ -95,28 +117,92 @@ export default function Signup() {
             placeholder="Enter your email"
             value={user.email}
             onChange={handleChange}
+            autoComplete="email"
           />
           <label htmlFor="password" className="text-ui-text">
             Password:
           </label>
           <input
-            className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500"
+            className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 ring:bg-ui-btn-500"
             type="password"
             id="password"
             placeholder="Enter your password"
             value={user.password}
             onChange={handleChange}
+            onFocus={() => setFocusedField("password")}
+            autoComplete="new-password"
           />
+          {focusedField === "password" && (
+            <div className="mt-2 rounded-md bg-ui-light-bg border border-ui-border p-3 text-sm">
+              <p className="font-semibold mb-2">Password requirements:</p>
+
+              <ul className="space-y-1">
+                <li
+                  className={
+                    passwordRequirements.length
+                      ? "text-green-600"
+                      : "text-red-500"
+                  }
+                >
+                  {passwordRequirements.length ? "✓" : "✗"} 8–24 characters
+                </li>
+
+                <li
+                  className={
+                    passwordRequirements.lowercase
+                      ? "text-green-600"
+                      : "text-red-500"
+                  }
+                >
+                  {passwordRequirements.lowercase ? "✓" : "✗"} At least one
+                  lowercase letter
+                </li>
+
+                <li
+                  className={
+                    passwordRequirements.uppercase
+                      ? "text-green-600"
+                      : "text-red-500"
+                  }
+                >
+                  {passwordRequirements.uppercase ? "✓" : "✗"} At least one
+                  uppercase letter
+                </li>
+
+                <li
+                  className={
+                    passwordRequirements.number
+                      ? "text-green-600"
+                      : "text-red-500"
+                  }
+                >
+                  {passwordRequirements.number ? "✓" : "✗"} At least one number
+                </li>
+
+                <li
+                  className={
+                    passwordRequirements.special
+                      ? "text-green-600"
+                      : "text-red-500"
+                  }
+                >
+                  {passwordRequirements.special ? "✓" : "✗"} At least one
+                  special character (!@#$%)
+                </li>
+              </ul>
+            </div>
+          )}
           <label htmlFor="password_confirmation" className="text-ui-text">
             Repeat Confirmation:
           </label>
           <input
-            className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500"
+            className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 ring:bg-ui-btn-500"
             type="password"
             id="password_confirmation"
             placeholder="Repeat your password"
             value={user.password_confirmation}
             onChange={handleChange}
+            autoComplete="new-password"
           />
           <div className="mt-4 flex justify-between text-ui-btn-text">
             <button className="bg-ui-btn-warn font-bold py-2 px-4 rounded-md">

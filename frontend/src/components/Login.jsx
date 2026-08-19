@@ -15,11 +15,11 @@ export default function Login() {
                     <label htmlFor="username" className="text-ui-text">
                         Username:
                     </label>
-                    <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="text" id="username" placeholder="Enter your username" />
+                    <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="text" id="username" placeholder="Enter your username" autoComplete="username" />
                     <label htmlFor="password">
                         Password:
                     </label>
-                    <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="password" id="password" placeholder="Enter your password" />
+                    <input className="border border-ui-border rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:bg-ui-btn-500" type="password" id="password" placeholder="Enter your password" autoComplete="current-password" />
                 </form>
                 <div className="mt-4 flex justify-between text-ui-btn-text">
                     <button className="bg-ui-btn-warn font-bold py-2 px-4 rounded-md">
