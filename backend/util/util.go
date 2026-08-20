@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -13,4 +15,14 @@ func WriteJSON(w http.ResponseWriter, status int, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		fmt.Println("JSON RESPONSE ERROR:", err)
 	}
+}
+
+func HashPwd(pwd string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword(
+		[]byte(pwd),
+		bcrypt.DefaultCost,
+	)
+
+	return string(hash), err
+
 }

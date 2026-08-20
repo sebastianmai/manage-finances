@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"backend/util"
 	"database/sql"
 	"fmt"
 	"os"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type dbConfig struct {
@@ -97,19 +97,9 @@ func connectToDatabase(dsn string) (*sql.DB, error) {
 	return database, nil
 }
 
-func (r *RepositoryLayerInstance) GET() string {
-	return "GET request"
-}
-
-func (r *RepositoryLayerInstance) POST() string {
-	return "POST request"
-}
-
 func (r *RepositoryLayerInstance) PutUser(firstName, lastName, email, password string) error {
-	hash, err := bcrypt.GenerateFromPassword(
-		[]byte(password),
-		bcrypt.DefaultCost,
-	)
+
+	hash, err := util.HashPwd(password)
 	if err != nil {
 		return fmt.Errorf("hashing password: %w", err)
 	}
@@ -152,4 +142,17 @@ func (r *RepositoryLayerInstance) CreateSession(userID int) error {
 	}
 
 	return nil
+}
+
+func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
+	users, err := r.db.Query(`
+		SELECT user_id, email, password_hash FROM users
+	`)
+	if err != nil {
+		fmt.Println("Error retrieving users:", err)
+		return nil, fmt.Errorf("retrieving users: %w", err)
+	}
+
+	return users, nil
+
 }

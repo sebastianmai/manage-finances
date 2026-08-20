@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type HandlerLayerInstance struct {
@@ -31,12 +32,16 @@ func NewHandlerLayer(s *services.ServiceLayerInstance) *HandlerLayerInstance {
 	return handlerInstance
 }
 
-func (h *HandlerLayerInstance) GET() string {
-	return h.services.GET()
-}
+func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
+	r := mux.NewRouter()
 
-func (h *HandlerLayerInstance) POST() string {
-	return h.services.POST()
+	corsHandler := handlers.CORS(
+		handlers.AllowedOrigins([]string{"http://localhost:5173"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
+	)(r)
+
+	return r, corsHandler
 }
 
 func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -82,14 +87,45 @@ func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
-	r := mux.NewRouter()
+func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request) {
+	type loginUserRequest struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
 
-	corsHandler := handlers.CORS(
-		handlers.AllowedOrigins([]string{"http://localhost:5173"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
-		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
-	)(r)
+	var req loginUserRequest
 
-	return r, corsHandler
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Email == "" || req.Password == "" {
+		http.Error(w, "Email and password are required", http.StatusBadRequest)
+		return
+	}
+
+	//check if user exists and password is correct
+	user, err := h.services.LoginUser(req.Email)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Invalid email or password",
+		})
+		return
+	}
+
+	if bcrypt.CompareHashAndPassword(
+		[]byte(user.Password),
+		[]byte(req.Password),
+	) != nil {
+		//create session token and return it
+		err := h.services.CreateSession(user.ID)
+		if err != nil {
+			util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+				"error": "Cannot hash password",
+			})
+			return
+		}
+	}
+
 }

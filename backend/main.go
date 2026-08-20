@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 
@@ -23,12 +22,11 @@ func main() {
 	s := services.NewServiceLayer(r)
 	h := handlers.NewHandlerLayer(s)
 
-	fmt.Printf(h.GET())
-
 	router, corsHandler := h.NewRouter()
 
 	// ROUTES:
 	router.HandleFunc("/signup", h.CreateUser).Methods("POST")
+	router.HandleFunc("/login", h.LoginUser).Methods("PUT")
 
 	log.Println("Server running on http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", corsHandler))
