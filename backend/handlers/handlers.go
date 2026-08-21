@@ -45,7 +45,10 @@ func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
 }
 
 func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request) {
+	uuid := util.GenerateUUID()
+
 	type createUserRequest struct {
+		UUID                 string
 		FirstName            string `json:"first_name"`
 		LastName             string `json:"last_name"`
 		Email                string `json:"email"`
@@ -54,15 +57,16 @@ func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request
 	}
 
 	var req createUserRequest
+	req.UUID = uuid
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.FirstName == "" || req.LastName == "" || req.Email == "" || req.Password == "" || req.PasswordConfirmation == "" {
+	if req.FirstName == "" || req.LastName == "" || req.Email == "" || req.Password == "" || req.PasswordConfirmation == "" || req.UUID == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "Passwords do not match",
+			"error": "All fields are required",
 		})
 		return
 	}
@@ -74,7 +78,7 @@ func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	err := h.services.CreateUser(req.FirstName, req.LastName, req.Email, req.Password)
+	err := h.services.CreateUser(req.UUID, req.FirstName, req.LastName, req.Email, req.Password)
 	if err != nil {
 		fmt.Println("CREATE USER ERROR:", err)
 

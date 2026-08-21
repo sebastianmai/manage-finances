@@ -97,7 +97,7 @@ func connectToDatabase(dsn string) (*sql.DB, error) {
 	return database, nil
 }
 
-func (r *RepositoryLayerInstance) PutUser(firstName, lastName, email, password string) error {
+func (r *RepositoryLayerInstance) PutUser(UUID, firstName, lastName, email, password string) error {
 
 	hash, err := util.HashPwd(password)
 	if err != nil {
@@ -105,9 +105,9 @@ func (r *RepositoryLayerInstance) PutUser(firstName, lastName, email, password s
 	}
 
 	_, err = r.db.Exec(`
-		INSERT INTO users (first_name, last_name, email, password_hash)
-		VALUES ($1, $2, $3, $4)
-	`, firstName, lastName, email, hash)
+		INSERT INTO users (uuid, first_name, last_name, email, password_hash)
+		VALUES ($1, $2, $3, $4, $5)
+	`, UUID, firstName, lastName, email, hash)
 
 	if err != nil {
 		return fmt.Errorf("inserting user: %w", err)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -25,4 +26,13 @@ func HashPwd(pwd string) (string, error) {
 
 	return string(hash), err
 
+}
+
+func GenerateUUID() string {
+	uuid, err := uuid.NewRandom()
+	if err != nil {
+		fmt.Println("Error generating UUID:", err)
+		return ""
+	}
+	return uuid.String()
 }

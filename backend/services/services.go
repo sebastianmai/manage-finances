@@ -30,8 +30,8 @@ func NewServiceLayer(r *repository.RepositoryLayerInstance) *ServiceLayerInstanc
 	return serviceInstance
 }
 
-func (s *ServiceLayerInstance) CreateUser(firstName, lastName, email, password string) error {
-	return s.repository.PutUser(firstName, lastName, email, password)
+func (s *ServiceLayerInstance) CreateUser(UUID, firstName, lastName, email, password string) error {
+	return s.repository.PutUser(UUID, firstName, lastName, email, password)
 }
 
 func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
