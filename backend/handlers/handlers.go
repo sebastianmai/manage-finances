@@ -114,6 +114,7 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
 			"error": "Invalid email or password",
+			"test":  err.Error(),
 		})
 		return
 	}
@@ -121,15 +122,24 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 	if bcrypt.CompareHashAndPassword(
 		[]byte(user.Password),
 		[]byte(req.Password),
-	) != nil {
+	) == nil {
 		//create session token and return it
 		err := h.services.CreateSession(user.ID)
 		if err != nil {
-			util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
-				"error": "Cannot hash password",
+			util.WriteJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "Failed to create session",
 			})
 			return
 		}
+
+		util.WriteJSON(w, http.StatusOK, map[string]string{
+			"message": "Login successful",
+		})
+		return
 	}
+
+	util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+		"error": "Invalid email or password",
+	})
 
 }

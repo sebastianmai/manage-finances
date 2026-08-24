@@ -65,7 +65,7 @@ func NewRepositoryLayer() (*RepositoryLayerInstance, error) {
 			cfg.dbname,
 		)
 
-		fmt.Printf(dsn)
+		fmt.Print(dsn)
 
 		db, err := connectToDatabase(dsn)
 		if err != nil {
@@ -128,25 +128,9 @@ func (r *RepositoryLayerInstance) DeleteUser(email string) error {
 	return nil
 }
 
-func (r *RepositoryLayerInstance) CreateSession(userID int) error {
-	createdAt := time.Now()
-	expiresAt := createdAt.Add(24 * time.Hour)
-
-	_, err := r.db.Exec(`
-		INSERT INTO sessions (user_id, created_at, expires_at)
-		VALUES ($1, $2, $3)
-	`, userID, createdAt, expiresAt)
-
-	if err != nil {
-		return fmt.Errorf("creating session: %w", err)
-	}
-
-	return nil
-}
-
 func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
 	users, err := r.db.Query(`
-		SELECT user_id, email, password_hash FROM users
+		SELECT uuid, email, password_hash FROM users
 	`)
 	if err != nil {
 		fmt.Println("Error retrieving users:", err)
@@ -155,4 +139,40 @@ func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
 
 	return users, nil
 
+}
+
+/*func (r *RepositoryLayerInstance) UpdateSession(sessionID, userID string, createdAt, expiresAt time.Time) error {
+	_, err := r.db.Exec(`
+		UPDATE sessions SET created_at = $1, expires_at = $2 WHERE uuid = $3
+	`, createdAt, expiresAt, sessionID)
+	if err != nil {
+		return fmt.Errorf("updating session: %w", err)
+	}
+	return nil
+}*/
+
+func (r *RepositoryLayerInstance) DeleteSession(userID string) error {
+	_, err := r.db.Exec(`
+		DELETE FROM sessions WHERE uuid = $1
+	`, userID)
+	if err != nil {
+		return fmt.Errorf("deleting session: %w", err)
+	}
+	return nil
+}
+
+func (r *RepositoryLayerInstance) CreateSession(userID string) error {
+	createdAt := time.Now()
+	expiresAt := createdAt.Add(24 * time.Hour)
+
+	_, err := r.db.Exec(`
+		INSERT INTO sessions (uuid, created_at, expires_at)
+		VALUES ($1, $2, $3)
+	`, userID, createdAt, expiresAt)
+
+	if err != nil {
+		return fmt.Errorf("creating session: %w", err)
+	}
+
+	return nil
 }

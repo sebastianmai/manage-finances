@@ -16,7 +16,7 @@ var (
 )
 
 type User struct {
-	ID       int
+	ID       string
 	Email    string
 	Password string
 }
@@ -43,7 +43,7 @@ func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
 	}
 
 	for rows.Next() {
-		var id int
+		var id string
 		var userEmail string
 		var userPassword string
 
@@ -53,10 +53,6 @@ func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
 			fmt.Printf("Error")
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
-
-		fmt.Println("ID:", id)
-		fmt.Println("Email:", email)
-		fmt.Println("Password:", userPassword)
 
 		if userEmail == email {
 			user := &User{
@@ -70,6 +66,14 @@ func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
 	return nil, fmt.Errorf("user not found")
 }
 
-func (s *ServiceLayerInstance) CreateSession(userID int) error {
-	return s.repository.CreateSession(userID)
+func (s *ServiceLayerInstance) CreateSession(userID string) error {
+	if err := s.repository.DeleteSession(userID); err != nil {
+		return fmt.Errorf("deleting existing session: %w", err)
+	}
+
+	if err := s.repository.CreateSession(userID); err != nil {
+		return fmt.Errorf("creating new session: %w", err)
+	}
+
+	return nil
 }

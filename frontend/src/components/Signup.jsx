@@ -22,13 +22,17 @@ export default function Signup() {
     password_confirmation: "",
   });
 
-  const passwordRequirements = {
+  /*const passwordRequirements = {
     length: user.password.length >= 8 && user.password.length <= 24,
     lowercase: /[a-z]/.test(user.password),
     uppercase: /[A-Z]/.test(user.password),
     number: /[0-9]/.test(user.password),
     special: /[!@#$%]/.test(user.password),
-  };
+  };*/
+
+  const passwordRequirements = {
+    length: user.password.length >=1 && user.password.length <= 24,
+  }
 
   const handleChange = (e) => {
     setUser({
