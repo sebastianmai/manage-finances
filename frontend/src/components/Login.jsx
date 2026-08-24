@@ -47,17 +47,11 @@ export default function Login() {
                 });
                 return;
             } else {
-                const data = await response.json();
-                const sessionID = data.session_id;
+                const loggedInUser = await response.json();
 
-                if (sessionID) {
-                    localStorage.setItem("sessionID", sessionID);
-                }
+                console.log("Login successful:", loggedInUser);
 
-                console.log("Login successful, session ID:", sessionID);
-
-                //handle successful
-                navigate("/")
+                navigate("/");
             }
         } catch (error) {
             console.error("Error logging in:", error);

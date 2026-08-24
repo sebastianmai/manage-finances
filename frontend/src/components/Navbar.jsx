@@ -1,12 +1,41 @@
 import sun from '../assets/sun_rm.svg';
 import moon from '../assets/moon_rm.svg';
 import { NavLink } from 'react-router-dom';
+import Profile from './Profile';
+import { useState, useEffect } from 'react';
 
 const navigation = [
     { name: 'Home', href: '/', current: true },
 ]
 
 export default function Navbar({ theme, setTheme }) {
+
+    
+    const [user, setUser] = useState(null);
+
+    useEffect(() => {
+        const getUser = async () => {
+            try {
+                const response = await fetch("http://localhost:8080/me", {
+                    method: "GET",
+                    credentials: "include",
+                });
+
+                if (!response.ok) {
+                    setUser(null);
+                    return;
+                }
+
+                const loggedInUser = await response.json();
+                setUser(loggedInUser);
+            } catch (error) {
+                console.error("Error getting user:", error);
+                setUser(null);
+            }
+        };
+
+        getUser();
+    }, []);
 
     const handleClick = () => {
 
@@ -34,9 +63,12 @@ export default function Navbar({ theme, setTheme }) {
                         </button>
                     ))}
                 </div>
+                {user ? (<Profile theme={theme} setTheme={setTheme}/>):
+                (
                 <button className="ml-auto px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
                     <NavLink to="/login">Log In</NavLink>
                 </button>
+                )}
                 <button className="px-4 py-2" onClick={handleClick}>
                     <img
                         src={theme === 'dark' ? sun : moon}

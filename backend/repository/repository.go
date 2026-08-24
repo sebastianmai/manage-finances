@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"backend/models"
 	"backend/util"
 	"database/sql"
 	"fmt"
@@ -141,6 +142,24 @@ func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
 
 }
 
+func (r *RepositoryLayerInstance) GetSingleUser(userID string) *models.User {
+
+	var user models.User
+
+	row := r.db.QueryRow(`
+		SELECT uuid, email FROM users WHERE uuid = $1
+	`, userID).Scan(&user.ID, &user.Email)
+
+	user.Password = "" // Clear the password field for security reasons
+
+	if row != nil {
+		fmt.Println("Error retrieving user:", row)
+		return nil
+	}
+
+	return &user
+}
+
 func (r *RepositoryLayerInstance) DeleteSession(userID string) error {
 	_, err := r.db.Exec(`
 		DELETE FROM sessions WHERE uuid = $1
@@ -164,4 +183,16 @@ func (r *RepositoryLayerInstance) CreateSession(sessionID, userID string, create
 	}
 
 	return returnedID, nil
+}
+
+func (r *RepositoryLayerInstance) GetAllSessions() (*sql.Rows, error) {
+	sessions, err := r.db.Query(`
+		SELECT session_id, uuid, created_at, expires_at FROM sessions
+	`)
+	if err != nil {
+		fmt.Println("Error retrieving sessions:", err)
+		return nil, fmt.Errorf("retrieving sessions: %w", err)
+	}
+
+	return sessions, nil
 }

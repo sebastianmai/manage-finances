@@ -163,3 +163,27 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 	})
 
 }
+
+func (h *HandlerLayerInstance) GetUser(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	sessionID := cookie.Value
+
+	user, err := h.services.GetUserBySession(sessionID)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"user": user,
+	})
+}

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"backend/models"
 	"backend/repository"
 	"fmt"
 	"sync"
@@ -78,4 +79,30 @@ func (s *ServiceLayerInstance) CreateSession(sessionID, userID string, createdAt
 		return "", fmt.Errorf("creating new session: %w", err)
 	}
 	return sessionID, nil
+}
+
+func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
+	sessions, err := s.repository.GetAllSessions()
+	if err != nil {
+		return nil, fmt.Errorf("retrieving user ID by session: %w", err)
+	}
+
+	for sessions.Next() {
+		var ID string
+		var userID string
+		var createdAt time.Time
+		var expiresAt time.Time
+
+		err := sessions.Scan(&ID, &userID, &createdAt, &expiresAt)
+		if err != nil {
+			return nil, fmt.Errorf("scanning session: %w", err)
+		}
+
+		if sessionID == ID {
+			singleUser := s.repository.GetSingleUser(userID)
+
+			return singleUser, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found")
 }
