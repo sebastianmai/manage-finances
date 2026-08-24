@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"backend/services"
 	"backend/util"
@@ -39,6 +40,7 @@ func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
 		handlers.AllowedOrigins([]string{"http://localhost:5173"}),
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
+		handlers.AllowCredentials(),
 	)(r)
 
 	return r, corsHandler
@@ -123,19 +125,37 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 		[]byte(user.Password),
 		[]byte(req.Password),
 	) == nil {
-		//create session token and return it
-		err := h.services.CreateSession(user.ID)
+
+		sessionID := util.GenerateUUID()
+		createdAt := time.Now()
+		expiresAt := createdAt.Add(24 * time.Hour)
+
+		sessionID, err := h.services.CreateSession(util.GenerateUUID(), user.ID, createdAt, expiresAt)
 		if err != nil {
 			util.WriteJSON(w, http.StatusInternalServerError, map[string]string{
-				"error": "Failed to create session",
+				"error":   "Failed to create session",
+				"details": err.Error(),
 			})
 			return
 		}
 
-		util.WriteJSON(w, http.StatusOK, map[string]string{
-			"message": "Login successful",
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_id",
+			Value:    sessionID,
+			Expires:  expiresAt,
+			HttpOnly: true,
+			Secure:   false, // false only in local http dev
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
 		})
+
+		util.WriteJSON(w, http.StatusOK, map[string]string{
+			"message":    "Login successful",
+			"session_id": sessionID,
+		})
+
 		return
+
 	}
 
 	util.WriteJSON(w, http.StatusUnauthorized, map[string]string{

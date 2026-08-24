@@ -31,6 +31,7 @@ export default function Login() {
             let body = JSON.stringify(user);
             const response = await fetch("http://localhost:8080/login", {
                 method: "PUT",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/json",
                 },
@@ -46,6 +47,15 @@ export default function Login() {
                 });
                 return;
             } else {
+                const data = await response.json();
+                const sessionID = data.session_id;
+
+                if (sessionID) {
+                    localStorage.setItem("sessionID", sessionID);
+                }
+
+                console.log("Login successful, session ID:", sessionID);
+
                 //handle successful
                 navigate("/")
             }

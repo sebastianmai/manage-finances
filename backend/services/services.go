@@ -4,6 +4,7 @@ import (
 	"backend/repository"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type ServiceLayerInstance struct {
@@ -66,14 +67,15 @@ func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
 	return nil, fmt.Errorf("user not found")
 }
 
-func (s *ServiceLayerInstance) CreateSession(userID string) error {
+func (s *ServiceLayerInstance) CreateSession(sessionID, userID string, createdAt, expiresAt time.Time) (string, error) {
 	if err := s.repository.DeleteSession(userID); err != nil {
-		return fmt.Errorf("deleting existing session: %w", err)
+		return "", fmt.Errorf("deleting existing session: %w", err)
 	}
 
-	if err := s.repository.CreateSession(userID); err != nil {
-		return fmt.Errorf("creating new session: %w", err)
-	}
+	sessionID, err := s.repository.CreateSession(sessionID, userID, createdAt, expiresAt)
 
-	return nil
+	if err != nil {
+		return "", fmt.Errorf("creating new session: %w", err)
+	}
+	return sessionID, nil
 }

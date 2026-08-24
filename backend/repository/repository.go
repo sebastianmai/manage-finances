@@ -151,18 +151,17 @@ func (r *RepositoryLayerInstance) DeleteSession(userID string) error {
 	return nil
 }
 
-func (r *RepositoryLayerInstance) CreateSession(userID string) error {
-	createdAt := time.Now()
-	expiresAt := createdAt.Add(24 * time.Hour)
-
-	_, err := r.db.Exec(`
-		INSERT INTO sessions (uuid, created_at, expires_at)
-		VALUES ($1, $2, $3)
-	`, userID, createdAt, expiresAt)
+func (r *RepositoryLayerInstance) CreateSession(sessionID, userID string, createdAt, expiresAt time.Time) (string, error) {
+	var returnedID string
+	err := r.db.QueryRow(`
+		INSERT INTO sessions (session_id, uuid, created_at, expires_at)
+		VALUES ($1, $2, $3, $4)
+		RETURNING session_id
+	`, sessionID, userID, createdAt, expiresAt).Scan(&returnedID)
 
 	if err != nil {
-		return fmt.Errorf("creating session: %w", err)
+		return "", fmt.Errorf("creating session: %w", err)
 	}
 
-	return nil
+	return returnedID, nil
 }
