@@ -141,16 +141,6 @@ func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
 
 }
 
-/*func (r *RepositoryLayerInstance) UpdateSession(sessionID, userID string, createdAt, expiresAt time.Time) error {
-	_, err := r.db.Exec(`
-		UPDATE sessions SET created_at = $1, expires_at = $2 WHERE uuid = $3
-	`, createdAt, expiresAt, sessionID)
-	if err != nil {
-		return fmt.Errorf("updating session: %w", err)
-	}
-	return nil
-}*/
-
 func (r *RepositoryLayerInstance) DeleteSession(userID string) error {
 	_, err := r.db.Exec(`
 		DELETE FROM sessions WHERE uuid = $1
