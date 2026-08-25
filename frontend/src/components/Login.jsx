@@ -51,6 +51,10 @@ export default function Login() {
 
                 console.log("Login successful:", loggedInUser);
 
+                // Notify Navbar (mounted once at the Router level, so it
+                // won't pick this up from a re-render) to re-fetch /me.
+                window.dispatchEvent(new Event("authchange"));
+
                 navigate("/");
             }
         } catch (error) {

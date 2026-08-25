@@ -11,6 +11,7 @@ const navigation = [
 export default function Navbar({ theme, setTheme }) {
 
     const [user, setUser] = useState(null);
+    const [checkingAuth, setCheckingAuth] = useState(true);
 
     useEffect(() => {
         const getUser = async () => {
@@ -25,15 +26,19 @@ export default function Navbar({ theme, setTheme }) {
                     return;
                 }
 
-                const loggedInUser = await response.json();
+                const { user: loggedInUser } = await response.json();
                 setUser(loggedInUser);
             } catch (error) {
                 console.error("Error getting user:", error);
                 setUser(null);
+            } finally {
+                setCheckingAuth(false);
             }
         };
 
         getUser();
+        window.addEventListener("authchange", getUser);
+        return () => window.removeEventListener("authchange", getUser);
     }, []);
 
     const handleClick = () => {
@@ -63,7 +68,7 @@ export default function Navbar({ theme, setTheme }) {
                     ))}
                 </div>
                 <div className="flex items-center">
-                    {user ? (<Profile theme={theme} setTheme={setTheme}/>):
+                    {checkingAuth ? null : user ? (<Profile theme={theme} setTheme={setTheme}/>):
                     (
                     <button className=" px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
                         <NavLink to="/login">Log In</NavLink>

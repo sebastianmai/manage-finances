@@ -101,6 +101,7 @@ export default function ProfilePage() {
         } catch (err) {
             console.error("Error logging out:", err);
         } finally {
+            window.dispatchEvent(new Event("authchange"));
             navigate("/login");
         }
     };
