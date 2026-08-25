@@ -1,15 +1,44 @@
-# React + Vite
+## Testing
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Tests are written with Jest + React Testing Library. Every component under `src/components/` has a co-located `*.test.jsx` suite.
 
-Currently, two official plugins are available:
+**Run all tests:**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm test
+```
 
-## React Compiler
+**Run a single component's suite** (matches on filename, case-insensitive):
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm test -- Navbar
+```
+
+This runs any test file whose path matches `Navbar`, e.g. `src/components/Navbar.test.jsx`. You can also point directly at a file:
+
+```bash
+npm test -- src/components/Navbar.test.jsx
+```
+
+**Run a single test case by name** (matches on the test's description, across all files):
+
+```bash
+npm test -- -t "authchange re-fetch flips Log In to Profile"
+```
+
+Combine both to scope to one file *and* one test:
+
+```bash
+npm test -- Navbar -t "theme toggle"
+```
+
+**Watch mode** (re-runs affected tests as you edit):
+
+```bash
+npm run test:watch
+```
+
+> Note the `--` before any arguments — npm needs it to pass flags/patterns through to the underlying `jest` command instead of interpreting them itself.
 
 ## Expanding the ESLint configuration
 

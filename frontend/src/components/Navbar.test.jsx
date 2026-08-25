@@ -1,0 +1,143 @@
+import { screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import Navbar from './Navbar';
+import {
+  renderWithRouter,
+  installFetchMock,
+  jsonResponse,
+  notOkResponse,
+  deferred,
+  dispatchAuthChange,
+} from '../test-utils';
+
+describe('Navbar', () => {
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = installFetchMock();
+  });
+
+  afterEach(() => {
+    delete global.fetch;
+  });
+
+  test('while /me is pending, neither Profile nor Log In render, but the toggle and nav link do', async () => {
+    const { promise } = deferred();
+    fetchMock.mockReturnValueOnce(promise);
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(screen.queryByRole('img', { name: 'Profile' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Log In' })).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Theme toggle' })).toBeInTheDocument();
+    expect(screen.getByText('My-Finances')).toBeInTheDocument();
+
+    // Resolve so no pending promise is left dangling at test end.
+    fetchMock.mockClear();
+  });
+
+  test('/me resolves ok -> Profile image appears, Log In does not', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(await screen.findByRole('img', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Log In' })).not.toBeInTheDocument();
+  });
+
+  test('/me resolves not-ok -> Log In appears, Profile does not', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(await screen.findByRole('link', { name: 'Log In' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Profile' })).not.toBeInTheDocument();
+  });
+
+  test('/me rejects -> Log In appears and console.error was called', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new Error('network down'));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(await screen.findByRole('link', { name: 'Log In' })).toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  test('requests /me with GET and credentials include', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/me',
+      expect.objectContaining({ method: 'GET', credentials: 'include' })
+    );
+  });
+
+  test('authchange re-fetch flips Log In to Profile', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(await screen.findByRole('link', { name: 'Log In' })).toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+    await dispatchAuthChange();
+
+    expect(await screen.findByRole('img', { name: 'Profile' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Log In' })).not.toBeInTheDocument();
+  });
+
+  test('theme toggle click calls setTheme with the opposite theme', async () => {
+    fetchMock.mockResolvedValue(notOkResponse(401));
+    const setTheme = jest.fn();
+    const user = userEvent.setup();
+
+    const { rerender } = renderWithRouter(<Navbar theme="dark" setTheme={setTheme} />);
+    await screen.findByRole('link', { name: 'Log In' });
+
+    await user.click(screen.getByRole('img', { name: 'Theme toggle' }));
+    expect(setTheme).toHaveBeenCalledTimes(1);
+    expect(setTheme).toHaveBeenCalledWith('light');
+
+    setTheme.mockClear();
+    rerender(<Navbar theme="light" setTheme={setTheme} />);
+    await user.click(screen.getByRole('img', { name: 'Theme toggle' }));
+    expect(setTheme).toHaveBeenCalledTimes(1);
+    expect(setTheme).toHaveBeenCalledWith('dark');
+  });
+
+  test('theme rendering: dark applies invert filter, light applies none', async () => {
+    fetchMock.mockResolvedValue(notOkResponse(401));
+
+    const { rerender } = renderWithRouter(<Navbar theme="dark" setTheme={jest.fn()} />);
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.getByRole('img', { name: 'Theme toggle' })).toHaveStyle({
+      filter: 'brightness(0) invert(1)',
+    });
+
+    rerender(<Navbar theme="light" setTheme={jest.fn()} />);
+    expect(screen.getByRole('img', { name: 'Theme toggle' }).style.filter).toBe('');
+  });
+
+  test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    const { unmount } = renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+    await screen.findByRole('link', { name: 'Log In' });
+
+    unmount();
+    fetchMock.mockClear();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('authchange'));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
