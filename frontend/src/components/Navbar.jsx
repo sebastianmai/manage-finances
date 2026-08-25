@@ -5,7 +5,7 @@ import Profile from './Profile';
 import { useState, useEffect } from 'react';
 
 const navigation = [
-    { name: 'Home', href: '/', current: true },
+    { name: 'My-Finances', href: '/', current: true },
 ]
 
 export default function Navbar({ theme, setTheme }) {
