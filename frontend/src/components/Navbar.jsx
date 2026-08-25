@@ -10,7 +10,6 @@ const navigation = [
 
 export default function Navbar({ theme, setTheme }) {
 
-    
     const [user, setUser] = useState(null);
 
     useEffect(() => {
@@ -63,20 +62,22 @@ export default function Navbar({ theme, setTheme }) {
                         </button>
                     ))}
                 </div>
-                {user ? (<Profile theme={theme} setTheme={setTheme}/>):
-                (
-                <button className="ml-auto px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
-                    <NavLink to="/login">Log In</NavLink>
-                </button>
-                )}
-                <button className="px-4 py-2" onClick={handleClick}>
-                    <img
-                        src={theme === 'dark' ? sun : moon}
-                        alt="Theme toggle"
-                        className="h-6 w-6"
-                        style={theme === 'dark' ? { filter: 'brightness(0) invert(1)' } : undefined}
-                    />
-                </button>
+                <div className="flex items-center">
+                    {user ? (<Profile theme={theme} setTheme={setTheme}/>):
+                    (
+                    <button className=" px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
+                        <NavLink to="/login">Log In</NavLink>
+                    </button>
+                    )}
+                    <button className="px-4 py-2" onClick={handleClick}>
+                        <img
+                            src={theme === 'dark' ? sun : moon}
+                            alt="Theme toggle"
+                            className="h-6 w-6"
+                            style={theme === 'dark' ? { filter: 'brightness(0) invert(1)' } : undefined}
+                        />
+                    </button>
+                </div>
             </div>
         </div>
     )

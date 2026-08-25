@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"backend/models"
 	"backend/services"
 	"backend/util"
 
@@ -38,7 +39,7 @@ func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
 
 	corsHandler := handlers.CORS(
 		handlers.AllowedOrigins([]string{"http://localhost:5173"}),
-		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}),
 		handlers.AllowedHeaders([]string{"Content-Type", "Authorization"}),
 		handlers.AllowCredentials(),
 	)(r)
@@ -185,5 +186,82 @@ func (h *HandlerLayerInstance) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"user": user,
+	})
+}
+
+func (h *HandlerLayerInstance) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	var req models.User
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.FirstName == "" || req.LastName == "" || req.Email == "" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "First name, last name, and email are required",
+		})
+		return
+	}
+
+	if err := h.services.UpdateUser(currentUser.ID, req.FirstName, req.LastName, req.Email); err != nil {
+		fmt.Println("UPDATE USER ERROR:", err)
+		http.Error(w, "Failed to update user", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"user": map[string]string{
+			"id":         currentUser.ID,
+			"first_name": req.FirstName,
+			"last_name":  req.LastName,
+			"email":      req.Email,
+		},
+	})
+}
+
+func (h *HandlerLayerInstance) Logout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	if err := h.services.Logout(cookie.Value); err != nil {
+		fmt.Println("LOGOUT ERROR:", err)
+		http.Error(w, "Failed to log out", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   false, // false only in local http dev
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+
+	util.WriteJSON(w, http.StatusOK, map[string]string{
+		"message": "Logged out successfully",
 	})
 }

@@ -1,14 +1,15 @@
 import profile from '../assets/profile.svg';
+import { NavLink } from 'react-router-dom';
 
 export default function Profile({ theme, setTheme }) {
     return (
         <div>
-            <button className="px-4 py-2" onClick={() => { console.log('Profile button clicked') }}>
+            <NavLink to="/profile" className="px-4 py-2 inline-block">
                 <img src={profile} alt="Profile"
                         className="h-6 w-6"
                         style={theme === 'dark' ? { filter: 'brightness(0) invert(1)' } : undefined}
                 />
-            </button>
+            </NavLink>
         </div>
     );
 }

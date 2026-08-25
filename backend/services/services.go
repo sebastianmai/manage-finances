@@ -81,6 +81,14 @@ func (s *ServiceLayerInstance) CreateSession(sessionID, userID string, createdAt
 	return sessionID, nil
 }
 
+func (s *ServiceLayerInstance) UpdateUser(userID, firstName, lastName, email string) error {
+	return s.repository.UpdateUser(userID, firstName, lastName, email)
+}
+
+func (s *ServiceLayerInstance) Logout(sessionID string) error {
+	return s.repository.DeleteSessionByID(sessionID)
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {

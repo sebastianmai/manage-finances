@@ -146,24 +146,44 @@ func (r *RepositoryLayerInstance) GetSingleUser(userID string) *models.User {
 
 	var user models.User
 
-	row := r.db.QueryRow(`
-		SELECT uuid, email FROM users WHERE uuid = $1
-	`, userID).Scan(&user.ID, &user.Email)
+	err := r.db.QueryRow(`
+		SELECT uuid, first_name, last_name, email FROM users WHERE uuid = $1
+	`, userID).Scan(&user.ID, &user.FirstName, &user.LastName, &user.Email)
 
-	user.Password = "" // Clear the password field for security reasons
-
-	if row != nil {
-		fmt.Println("Error retrieving user:", row)
+	if err != nil {
+		fmt.Println("Error retrieving user:", err)
 		return nil
 	}
 
 	return &user
 }
 
+func (r *RepositoryLayerInstance) UpdateUser(userID, firstName, lastName, email string) error {
+	_, err := r.db.Exec(`
+		UPDATE users SET first_name = $1, last_name = $2, email = $3 WHERE uuid = $4
+	`, firstName, lastName, email, userID)
+
+	if err != nil {
+		return fmt.Errorf("updating user: %w", err)
+	}
+
+	return nil
+}
+
 func (r *RepositoryLayerInstance) DeleteSession(userID string) error {
 	_, err := r.db.Exec(`
 		DELETE FROM sessions WHERE uuid = $1
 	`, userID)
+	if err != nil {
+		return fmt.Errorf("deleting session: %w", err)
+	}
+	return nil
+}
+
+func (r *RepositoryLayerInstance) DeleteSessionByID(sessionID string) error {
+	_, err := r.db.Exec(`
+		DELETE FROM sessions WHERE session_id = $1
+	`, sessionID)
 	if err != nil {
 		return fmt.Errorf("deleting session: %w", err)
 	}
