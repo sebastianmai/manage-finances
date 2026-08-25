@@ -66,8 +66,6 @@ func NewRepositoryLayer() (*RepositoryLayerInstance, error) {
 			cfg.dbname,
 		)
 
-		fmt.Print(dsn)
-
 		db, err := connectToDatabase(dsn)
 		if err != nil {
 			repositoryErr = fmt.Errorf("failed to connect to database: %w", err)
@@ -93,6 +91,19 @@ func connectToDatabase(dsn string) (*sql.DB, error) {
 		_ = database.Close()
 		return nil, err
 	}
+
+	// These limits are a backstop against a connection pool growing
+	// unbounded, not a substitute for closing every cursor the repository
+	// opens. Applied on top of code that already returns its connections
+	// they simply cap steady-state usage; applied to code that still leaked
+	// connections they would convert an unbounded leak into a hard deadlock
+	// instead -- every query blocking on the pool once the cap is reached.
+	// 25 is comfortably below Postgres's default max_connections of 100,
+	// leaving room for psql and pgadmin alongside a single backend instance.
+	database.SetMaxOpenConns(25)
+	database.SetMaxIdleConns(25)
+	database.SetConnMaxLifetime(5 * time.Minute)
+
 	fmt.Println("Connected to the database successfully")
 
 	return database, nil
@@ -129,17 +140,43 @@ func (r *RepositoryLayerInstance) DeleteUser(email string) error {
 	return nil
 }
 
-func (r *RepositoryLayerInstance) GetAllUsers() (*sql.Rows, error) {
-	users, err := r.db.Query(`
-		SELECT uuid, email, password_hash FROM users
+// GetAllUsers scans every column into models.User rather than the three the
+// caller happens to need today. Scanning a subset would leave FirstName and
+// LastName silently empty on a struct that otherwise looks fully populated --
+// GetSingleUser already returns a fully populated *models.User, and two
+// differently-partial shapes of the same type circulating in one package
+// costs more clarity than two extra text columns cost performance.
+// Password carries json:"-", so widening the scan cannot put a hash on the
+// wire.
+func (r *RepositoryLayerInstance) GetAllUsers() ([]models.User, error) {
+	rows, err := r.db.Query(`
+		SELECT uuid, first_name, last_name, email, password_hash FROM users
 	`)
 	if err != nil {
-		fmt.Println("Error retrieving users:", err)
 		return nil, fmt.Errorf("retrieving users: %w", err)
+	}
+	defer rows.Close()
+
+	users := []models.User{}
+	for rows.Next() {
+		var user models.User
+		if err := rows.Scan(
+			&user.ID,
+			&user.FirstName,
+			&user.LastName,
+			&user.Email,
+			&user.Password,
+		); err != nil {
+			return nil, fmt.Errorf("scanning user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating users: %w", err)
 	}
 
 	return users, nil
-
 }
 
 func (r *RepositoryLayerInstance) GetSingleUser(userID string) *models.User {
@@ -205,20 +242,6 @@ func (r *RepositoryLayerInstance) CreateSession(sessionID, userID string, create
 	return returnedID, nil
 }
 
-func (r *RepositoryLayerInstance) GetBalanceByUser(userUUID string) (float64, error) {
-	var balance float64
-
-	err := r.db.QueryRow(`
-		SELECT COALESCE(SUM(saldo), 0)::float8 FROM accounts WHERE uuid = $1
-	`, userUUID).Scan(&balance)
-
-	if err != nil {
-		return 0, fmt.Errorf("retrieving balance: %w", err)
-	}
-
-	return balance, nil
-}
-
 func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.Account, error) {
 	rows, err := r.db.Query(`
 		SELECT account_id, type, account_number, full_name, short_name,
@@ -262,9 +285,10 @@ func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.A
 // positional shape.
 func (r *RepositoryLayerInstance) CreateAccount(account models.Account) error {
 	_, err := r.db.Exec(`
-		INSERT INTO accounts (uuid, type, account_number, full_name, short_name, saldo, active_since, owner_name, vollmacht)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''))
+		INSERT INTO accounts (account_id, uuid, type, account_number, full_name, short_name, saldo, active_since, owner_name, vollmacht)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''))
 	`,
+		account.ID,
 		account.UUID,
 		account.Type,
 		account.AccountNumber,
@@ -286,7 +310,7 @@ func (r *RepositoryLayerInstance) CreateAccount(account models.Account) error {
 // DeleteAccount enforces ownership in the WHERE clause rather than a
 // separate Go-side check: a delete that matches nothing is reported
 // identically whether the row is absent or owned by someone else.
-func (r *RepositoryLayerInstance) DeleteAccount(accountID int64, userUUID string) (bool, error) {
+func (r *RepositoryLayerInstance) DeleteAccount(accountID string, userUUID string) (bool, error) {
 	result, err := r.db.Exec(`
 		DELETE FROM accounts WHERE account_id = $1 AND uuid = $2
 	`, accountID, userUUID)
@@ -372,13 +396,26 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 	return nil
 }
 
-func (r *RepositoryLayerInstance) GetAllSessions() (*sql.Rows, error) {
-	sessions, err := r.db.Query(`
-		SELECT session_id, uuid, created_at, expires_at FROM sessions
+func (r *RepositoryLayerInstance) GetAllSessions() ([]models.Session, error) {
+	rows, err := r.db.Query(`
+		SELECT session_id, uuid FROM sessions
 	`)
 	if err != nil {
-		fmt.Println("Error retrieving sessions:", err)
 		return nil, fmt.Errorf("retrieving sessions: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := []models.Session{}
+	for rows.Next() {
+		var session models.Session
+		if err := rows.Scan(&session.SessionID, &session.UUID); err != nil {
+			return nil, fmt.Errorf("scanning session: %w", err)
+		}
+		sessions = append(sessions, session)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating sessions: %w", err)
 	}
 
 	return sessions, nil

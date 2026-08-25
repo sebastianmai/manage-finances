@@ -10,13 +10,13 @@ import {
 } from '../test-utils';
 
 const account1 = {
-  id: 1,
+  id: '11111111-1111-1111-1111-111111111111',
   short_name: 'Giro',
   full_name: 'Girokonto Sparkasse',
 };
 
 const account2 = {
-  id: 2,
+  id: '22222222-2222-2222-2222-222222222222',
   short_name: 'Spar',
   full_name: 'Sparkonto Tagesgeld',
 };
@@ -37,7 +37,7 @@ async function fillBasicFields(
     await user.type(screen.getByLabelText('Date:'), date);
   }
   if (skip !== 'account') {
-    await user.selectOptions(screen.getByLabelText('Account:'), String(account.id));
+    await user.selectOptions(screen.getByLabelText('Account:'), account.id);
   }
   if (skip !== 'category') {
     await user.selectOptions(screen.getByLabelText('Category:'), category);
@@ -185,7 +185,7 @@ describe('NewTransactionPage', () => {
     setup();
 
     await screen.findByLabelText('Account:');
-    await user.selectOptions(screen.getByLabelText('Account:'), String(account1.id));
+    await user.selectOptions(screen.getByLabelText('Account:'), account1.id);
     await user.click(screen.getByLabelText('This is a transfer to another of my own accounts'));
 
     const destinationSelect = screen.getByLabelText('Transfer to:');
@@ -201,10 +201,10 @@ describe('NewTransactionPage', () => {
     await screen.findByLabelText('Account:');
     await fillBasicFields(user, { account: account1 });
     await user.click(screen.getByLabelText('This is a transfer to another of my own accounts'));
-    await user.selectOptions(screen.getByLabelText('Transfer to:'), String(account2.id));
+    await user.selectOptions(screen.getByLabelText('Transfer to:'), account2.id);
 
     // Change the source to the account currently chosen as the destination.
-    await user.selectOptions(screen.getByLabelText('Account:'), String(account2.id));
+    await user.selectOptions(screen.getByLabelText('Account:'), account2.id);
 
     expect(screen.getByLabelText('Transfer to:').value).toBe('');
 
@@ -216,7 +216,7 @@ describe('NewTransactionPage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1); // mount GET only, no POST
   });
 
-  test('normal booking success: POSTs numeric account_id/amount with sign preserved, no transfer key, navigates to /', async () => {
+  test('normal booking success: POSTs string account_id, numeric amount with sign preserved, no transfer key, navigates to /', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2] }))
       .mockResolvedValueOnce(jsonResponse({ message: 'Transaction created successfully' }));
@@ -237,13 +237,13 @@ describe('NewTransactionPage', () => {
 
     const body = JSON.parse(options.body);
     expect(body.account_id).toBe(account1.id);
-    expect(typeof body.account_id).toBe('number');
+    expect(typeof body.account_id).toBe('string');
     expect(body.amount).toBe(-42.5);
     expect(typeof body.amount).toBe('number');
     expect(body).not.toHaveProperty('transfer_to_account_id');
   });
 
-  test('transfer success: POSTs numeric transfer_to_account_id, navigates to /', async () => {
+  test('transfer success: POSTs string transfer_to_account_id, navigates to /', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2] }))
       .mockResolvedValueOnce(jsonResponse({ message: 'Transaction created successfully' }));
@@ -253,7 +253,7 @@ describe('NewTransactionPage', () => {
     await screen.findByLabelText('Account:');
     await fillBasicFields(user, { account: account1, amount: '30' });
     await user.click(screen.getByLabelText('This is a transfer to another of my own accounts'));
-    await user.selectOptions(screen.getByLabelText('Transfer to:'), String(account2.id));
+    await user.selectOptions(screen.getByLabelText('Transfer to:'), account2.id);
     await user.click(screen.getByRole('button', { name: 'Save booking' }));
 
     expect(await screen.findByText('navigated:/')).toBeInTheDocument();
@@ -261,7 +261,7 @@ describe('NewTransactionPage', () => {
     const [, options] = fetchMock.mock.calls[1];
     const body = JSON.parse(options.body);
     expect(body.transfer_to_account_id).toBe(account2.id);
-    expect(typeof body.transfer_to_account_id).toBe('number');
+    expect(typeof body.transfer_to_account_id).toBe('string');
   });
 
   test('POST not-ok: shows submit error, stays on the page', async () => {

@@ -4,6 +4,7 @@ import (
 	"backend/models"
 	"backend/repository"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 )
@@ -38,31 +39,18 @@ func (s *ServiceLayerInstance) CreateUser(UUID, firstName, lastName, email, pass
 
 func (s *ServiceLayerInstance) LoginUser(email string) (*User, error) {
 
-	rows, err := s.repository.GetAllUsers()
+	users, err := s.repository.GetAllUsers()
 	if err != nil {
-		fmt.Printf("Error retrieving")
 		return nil, fmt.Errorf("retrieving users: %w", err)
 	}
 
-	for rows.Next() {
-		var id string
-		var userEmail string
-		var userPassword string
-
-		err := rows.Scan(&id, &userEmail, &userPassword)
-
-		if err != nil {
-			fmt.Printf("Error")
-			return nil, fmt.Errorf("scanning user: %w", err)
-		}
-
-		if userEmail == email {
-			user := &User{
-				ID:       id,
-				Email:    userEmail,
-				Password: userPassword,
-			}
-			return user, nil
+	for _, user := range users {
+		if user.Email == email {
+			return &User{
+				ID:       user.ID,
+				Email:    user.Email,
+				Password: user.Password,
+			}, nil
 		}
 	}
 	return nil, fmt.Errorf("user not found")
@@ -89,8 +77,28 @@ func (s *ServiceLayerInstance) Logout(sessionID string) error {
 	return s.repository.DeleteSessionByID(sessionID)
 }
 
+// GetBalance sums Saldo across the user's accounts in Go rather than asking
+// Postgres for SUM(saldo). The database column is numeric(10,2), summed
+// exactly server-side; GetAccountsByUser already casts each row to float8
+// before this function ever sees it, so every intermediate here is a
+// float64 approximation and naively summing them can drift off the
+// two-decimal domain (0.10 + 0.20 becomes 0.30000000000000004 rather than
+// 0.3). Rounding to two decimals restores exact parity with the column's own
+// domain: the true sum is always a two-decimal quantity, so the float64
+// result is always within ~1e-13 of it, multiplying by 100 lands within
+// ~1e-11 of an integer, and math.Round recovers that integer exactly.
 func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
-	return s.repository.GetBalanceByUser(userUUID)
+	accounts, err := s.repository.GetAccountsByUser(userUUID)
+	if err != nil {
+		return 0, fmt.Errorf("retrieving balance: %w", err)
+	}
+
+	var sum float64
+	for _, account := range accounts {
+		sum += account.Saldo
+	}
+
+	return math.Round(sum*100) / 100, nil
 }
 
 func (s *ServiceLayerInstance) GetAccounts(userUUID string) ([]models.Account, error) {
@@ -101,7 +109,7 @@ func (s *ServiceLayerInstance) CreateAccount(account models.Account) error {
 	return s.repository.CreateAccount(account)
 }
 
-func (s *ServiceLayerInstance) DeleteAccount(accountID int64, userUUID string) (bool, error) {
+func (s *ServiceLayerInstance) DeleteAccount(accountID string, userUUID string) (bool, error) {
 	return s.repository.DeleteAccount(accountID, userUUID)
 }
 
@@ -115,21 +123,9 @@ func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User,
 		return nil, fmt.Errorf("retrieving user ID by session: %w", err)
 	}
 
-	for sessions.Next() {
-		var ID string
-		var userID string
-		var createdAt time.Time
-		var expiresAt time.Time
-
-		err := sessions.Scan(&ID, &userID, &createdAt, &expiresAt)
-		if err != nil {
-			return nil, fmt.Errorf("scanning session: %w", err)
-		}
-
-		if sessionID == ID {
-			singleUser := s.repository.GetSingleUser(userID)
-
-			return singleUser, nil
+	for _, session := range sessions {
+		if session.SessionID == sessionID {
+			return s.repository.GetSingleUser(session.UUID), nil
 		}
 	}
 	return nil, fmt.Errorf("user not found")

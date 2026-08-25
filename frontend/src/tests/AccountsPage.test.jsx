@@ -12,7 +12,7 @@ import {
 } from '../test-utils';
 
 const account1 = {
-  id: 1,
+  id: '11111111-1111-1111-1111-111111111111',
   type: 'Girokonto',
   account_number: 'DE00 1234 5678',
   full_name: 'Girokonto Sparkasse',
@@ -24,7 +24,7 @@ const account1 = {
 };
 
 const account2 = {
-  id: 2,
+  id: '22222222-2222-2222-2222-222222222222',
   type: 'Tagesgeld',
   account_number: 'DE00 8765 4321',
   full_name: 'Tagesgeldkonto',

@@ -77,16 +77,15 @@ export default function NewTransactionPage() {
         setForm((prev) => {
             const next = { ...prev, [id]: nextValue };
 
-            // Select values arrive as strings while account ids are
-            // numbers -- compare with String(...) on both sides rather
-            // than relying on coercion, since == is banned by the style
-            // guide. Reactively clear the destination whenever the chosen
-            // source becomes the currently chosen destination, so a
-            // source-equals-destination state is never submittable.
+            // Both select values are already strings (UUIDs), so a plain
+            // === compares them safely. Reactively clear the destination
+            // whenever the chosen source becomes the currently chosen
+            // destination, so a source-equals-destination state is never
+            // submittable.
             if (
                 id === 'account_id' &&
                 prev.transfer_to_account_id !== '' &&
-                String(nextValue) === String(prev.transfer_to_account_id)
+                nextValue === prev.transfer_to_account_id
             ) {
                 next.transfer_to_account_id = '';
             }
@@ -126,7 +125,7 @@ export default function NewTransactionPage() {
         }
 
         const body = {
-            account_id: Number(form.account_id),
+            account_id: form.account_id,
             amount: amountNumber,
             transaction_date: form.transaction_date,
             category: form.category,
@@ -134,7 +133,7 @@ export default function NewTransactionPage() {
         };
 
         if (form.is_transfer) {
-            body.transfer_to_account_id = Number(form.transfer_to_account_id);
+            body.transfer_to_account_id = form.transfer_to_account_id;
         }
 
         try {
@@ -202,7 +201,7 @@ export default function NewTransactionPage() {
     }
 
     const destinationOptions = accounts.filter(
-        (account) => String(account.id) !== String(form.account_id)
+        (account) => account.id !== form.account_id
     );
 
     return (

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"backend/services"
 	"backend/util"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
@@ -50,7 +50,7 @@ func (h *HandlerLayerInstance) NewRouter() (*mux.Router, http.Handler) {
 }
 
 func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request) {
-	uuid := util.GenerateUUID()
+	userUUID := util.GenerateUUID()
 
 	type createUserRequest struct {
 		UUID                 string
@@ -62,7 +62,7 @@ func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request
 	}
 
 	var req createUserRequest
-	req.UUID = uuid
+	req.UUID = userUUID
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -275,6 +275,12 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 	// The decoder cannot have touched UUID (json:"-"), so the session user
 	// is the only possible owner.
 	req.UUID = currentUser.ID
+	// Account.ID is tagged json:"id", so unlike UUID a client CAN put an id
+	// in the request body. Assigning here unconditionally overwrites
+	// anything supplied, which is what keeps ids server-generated --
+	// assigning before the decode would let a client choose its own
+	// primary key.
+	req.ID = util.GenerateUUID()
 
 	if req.Type == "" || req.AccountNumber == "" || req.FullName == "" || req.ShortName == "" || req.ActiveSince == "" || req.OwnerName == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -312,15 +318,18 @@ func (h *HandlerLayerInstance) DeleteAccount(w http.ResponseWriter, r *http.Requ
 	}
 
 	vars := mux.Vars(r)
-	accountID, err := strconv.ParseInt(vars["id"], 10, 64)
-	if err != nil {
+	// This is a syntax validation gate, not a conversion step -- the
+	// service wants the original path-segment string, not the parsed
+	// value. Failing early with a clean 400 stops a bad id from surfacing
+	// as a raw driver/scan error further down.
+	if _, err := uuid.Parse(vars["id"]); err != nil {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Invalid account id",
 		})
 		return
 	}
 
-	deleted, err := h.services.DeleteAccount(accountID, currentUser.ID)
+	deleted, err := h.services.DeleteAccount(vars["id"], currentUser.ID)
 	if err != nil {
 		fmt.Println("DELETE ACCOUNT ERROR:", err)
 		http.Error(w, "Failed to delete account", http.StatusInternalServerError)
@@ -368,7 +377,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 	// is the only possible owner.
 	req.UUID = currentUser.ID
 
-	if req.AccountID == 0 || req.TransactionDate == "" || req.Category == "" || req.Description == "" {
+	if req.AccountID == "" || req.TransactionDate == "" || req.Category == "" || req.Description == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Account, date, category, and description are required",
 		})
@@ -392,7 +401,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	isTransfer := req.TransferToAccountID != 0
+	isTransfer := req.TransferToAccountID != ""
 
 	if isTransfer && req.TransferToAccountID == req.AccountID {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
