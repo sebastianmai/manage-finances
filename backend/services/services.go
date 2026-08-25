@@ -89,6 +89,10 @@ func (s *ServiceLayerInstance) Logout(sessionID string) error {
 	return s.repository.DeleteSessionByID(sessionID)
 }
 
+func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
+	return s.repository.GetBalanceByUser(userUUID)
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {

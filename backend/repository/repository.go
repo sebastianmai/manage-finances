@@ -205,6 +205,20 @@ func (r *RepositoryLayerInstance) CreateSession(sessionID, userID string, create
 	return returnedID, nil
 }
 
+func (r *RepositoryLayerInstance) GetBalanceByUser(userUUID string) (float64, error) {
+	var balance float64
+
+	err := r.db.QueryRow(`
+		SELECT COALESCE(SUM(amount), 0)::float8 FROM transactions WHERE uuid = $1
+	`, userUUID).Scan(&balance)
+
+	if err != nil {
+		return 0, fmt.Errorf("retrieving balance: %w", err)
+	}
+
+	return balance, nil
+}
+
 func (r *RepositoryLayerInstance) GetAllSessions() (*sql.Rows, error) {
 	sessions, err := r.db.Query(`
 		SELECT session_id, uuid, created_at, expires_at FROM sessions

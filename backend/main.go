@@ -29,6 +29,7 @@ func main() {
 	router.HandleFunc("/login", h.LoginUser).Methods("PUT")
 	router.HandleFunc("/me", h.GetUser).Methods("GET")
 	router.HandleFunc("/me", h.UpdateUser).Methods("PATCH")
+	router.HandleFunc("/balance", h.GetBalance).Methods("GET")
 	router.HandleFunc("/logout", h.Logout).Methods("POST")
 
 	log.Println("Server running on http://localhost:8080")

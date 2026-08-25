@@ -189,6 +189,35 @@ func (h *HandlerLayerInstance) GetUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *HandlerLayerInstance) GetBalance(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	user, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	balance, err := h.services.GetBalance(user.ID)
+	if err != nil {
+		fmt.Println("GET BALANCE ERROR:", err)
+		http.Error(w, "Failed to retrieve balance", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"balance": balance,
+	})
+}
+
 func (h *HandlerLayerInstance) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
