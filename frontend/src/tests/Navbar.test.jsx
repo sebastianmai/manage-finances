@@ -1,6 +1,6 @@
 import { screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import Navbar from './Navbar';
+import Navbar from '../components/Navbar';
 import {
   renderWithRouter,
   installFetchMock,

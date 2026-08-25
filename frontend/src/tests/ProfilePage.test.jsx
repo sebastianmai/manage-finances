@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import ProfilePage from './ProfilePage';
+import ProfilePage from '../components/ProfilePage';
 import { renderAtRoute, installFetchMock, jsonResponse, notOkResponse, deferred } from '../test-utils';
 
 const originalUser = { first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' };

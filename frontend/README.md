@@ -1,6 +1,6 @@
 ## Testing
 
-Tests are written with Jest + React Testing Library. Every component under `src/components/` has a co-located `*.test.jsx` suite.
+Tests are written with Jest + React Testing Library. Components live in `src/components/`; their `*.test.jsx` suites live separately in `src/tests/`, one file per component.
 
 **Run all tests:**
 
@@ -14,10 +14,10 @@ npm test
 npm test -- Navbar
 ```
 
-This runs any test file whose path matches `Navbar`, e.g. `src/components/Navbar.test.jsx`. You can also point directly at a file:
+This runs any test file whose path matches `Navbar`, e.g. `src/tests/Navbar.test.jsx`. You can also point directly at a file:
 
 ```bash
-npm test -- src/components/Navbar.test.jsx
+npm test -- src/tests/Navbar.test.jsx
 ```
 
 **Run a single test case by name** (matches on the test's description, across all files):

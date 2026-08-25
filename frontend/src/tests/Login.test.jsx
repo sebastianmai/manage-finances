@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import Login from './Login';
+import Login from '../components/Login';
 import { renderAtRoute, installFetchMock, jsonResponse, notOkResponse } from '../test-utils';
 
 // Login.jsx's page heading reads "Sign Up" -- a pre-existing copy defect

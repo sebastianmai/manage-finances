@@ -11,7 +11,7 @@
  */
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import Signup from './Signup';
+import Signup from '../components/Signup';
 import { renderAtRoute, installFetchMock, jsonResponse, notOkResponse } from '../test-utils';
 
 function setup() {

@@ -1,5 +1,5 @@
 import { screen, act } from '@testing-library/react';
-import Home from './Home';
+import Home from '../components/Home';
 import {
   renderWithRouter,
   installFetchMock,

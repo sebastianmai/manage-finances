@@ -1,5 +1,5 @@
 import { screen } from '@testing-library/react';
-import Profile from './Profile';
+import Profile from '../components/Profile';
 import { renderWithRouter } from '../test-utils';
 
 describe('Profile', () => {
