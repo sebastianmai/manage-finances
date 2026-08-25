@@ -125,6 +125,49 @@ describe('Navbar', () => {
     expect(screen.getByRole('img', { name: 'Theme toggle' }).style.filter).toBe('');
   });
 
+  test('logged out (/me not-ok): no Accounts link', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument();
+  });
+
+  test('while /me is pending: no Accounts link', async () => {
+    const { promise } = deferred();
+    fetchMock.mockReturnValueOnce(promise);
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument();
+
+    fetchMock.mockClear();
+  });
+
+  test('logged in (/me ok): Accounts link exists with href="/accounts"', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    const link = await screen.findByRole('link', { name: 'Accounts' });
+    expect(link).toHaveAttribute('href', '/accounts');
+  });
+
+  test('authchange after a logged-out mount makes the Accounts link appear', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.queryByRole('link', { name: 'Accounts' })).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+    await dispatchAuthChange();
+
+    expect(await screen.findByRole('link', { name: 'Accounts' })).toBeInTheDocument();
+  });
+
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 

@@ -209,7 +209,7 @@ func (r *RepositoryLayerInstance) GetBalanceByUser(userUUID string) (float64, er
 	var balance float64
 
 	err := r.db.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0)::float8 FROM transactions WHERE uuid = $1
+		SELECT COALESCE(SUM(saldo), 0)::float8 FROM accounts WHERE uuid = $1
 	`, userUUID).Scan(&balance)
 
 	if err != nil {
@@ -217,6 +217,90 @@ func (r *RepositoryLayerInstance) GetBalanceByUser(userUUID string) (float64, er
 	}
 
 	return balance, nil
+}
+
+func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.Account, error) {
+	rows, err := r.db.Query(`
+		SELECT account_id, type, account_number, full_name, short_name,
+			saldo::float8, active_since::text, owner_name, COALESCE(vollmacht, '')
+		FROM accounts WHERE uuid = $1 ORDER BY active_since ASC, full_name ASC
+	`, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving accounts: %w", err)
+	}
+	defer rows.Close()
+
+	accounts := []models.Account{}
+	for rows.Next() {
+		var account models.Account
+		if err := rows.Scan(
+			&account.ID,
+			&account.Type,
+			&account.AccountNumber,
+			&account.FullName,
+			&account.ShortName,
+			&account.Saldo,
+			&account.ActiveSince,
+			&account.OwnerName,
+			&account.Vollmacht,
+		); err != nil {
+			return nil, fmt.Errorf("scanning account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating accounts: %w", err)
+	}
+
+	return accounts, nil
+}
+
+// CreateAccount takes a models.Account rather than nine positional
+// parameters: eight adjacent same-typed string arguments is a silent-swap
+// hazard, and the style guide ranks clarity above consistency with PutUser's
+// positional shape.
+func (r *RepositoryLayerInstance) CreateAccount(account models.Account) error {
+	_, err := r.db.Exec(`
+		INSERT INTO accounts (uuid, type, account_number, full_name, short_name, saldo, active_since, owner_name, vollmacht)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''))
+	`,
+		account.UUID,
+		account.Type,
+		account.AccountNumber,
+		account.FullName,
+		account.ShortName,
+		account.Saldo,
+		account.ActiveSince,
+		account.OwnerName,
+		account.Vollmacht,
+	)
+
+	if err != nil {
+		return fmt.Errorf("inserting account: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteAccount enforces ownership in the WHERE clause rather than a
+// separate Go-side check: a delete that matches nothing is reported
+// identically whether the row is absent or owned by someone else.
+func (r *RepositoryLayerInstance) DeleteAccount(accountID int64, userUUID string) (bool, error) {
+	result, err := r.db.Exec(`
+		DELETE FROM accounts WHERE account_id = $1 AND uuid = $2
+	`, accountID, userUUID)
+
+	if err != nil {
+		return false, fmt.Errorf("deleting account: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("deleting account: %w", err)
+	}
+
+	return rowsAffected > 0, nil
 }
 
 func (r *RepositoryLayerInstance) GetAllSessions() (*sql.Rows, error) {

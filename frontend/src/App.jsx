@@ -5,6 +5,7 @@ import Signup from './components/Signup'
 import Home from './components/Home'
 import Login from './components/Login'
 import ProfilePage from './components/ProfilePage'
+import AccountsPage from './components/AccountsPage'
 
 import {useState, useEffect} from 'react'
 import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
@@ -26,6 +27,7 @@ function App() {
             <Route path="/sign-up" element={<Signup />} />
             <Route path="/login" element={<Login />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/" element={<Home />} />
           </Routes>
         </div>

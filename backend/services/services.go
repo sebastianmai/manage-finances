@@ -93,6 +93,18 @@ func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
 	return s.repository.GetBalanceByUser(userUUID)
 }
 
+func (s *ServiceLayerInstance) GetAccounts(userUUID string) ([]models.Account, error) {
+	return s.repository.GetAccountsByUser(userUUID)
+}
+
+func (s *ServiceLayerInstance) CreateAccount(account models.Account) error {
+	return s.repository.CreateAccount(account)
+}
+
+func (s *ServiceLayerInstance) DeleteAccount(accountID int64, userUUID string) (bool, error) {
+	return s.repository.DeleteAccount(accountID, userUUID)
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {

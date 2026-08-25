@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -215,6 +216,127 @@ func (h *HandlerLayerInstance) GetBalance(w http.ResponseWriter, r *http.Request
 
 	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"balance": balance,
+	})
+}
+
+func (h *HandlerLayerInstance) GetAccounts(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	user, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	accounts, err := h.services.GetAccounts(user.ID)
+	if err != nil {
+		fmt.Println("GET ACCOUNTS ERROR:", err)
+		http.Error(w, "Failed to retrieve accounts", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"accounts": accounts,
+	})
+}
+
+func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	var req models.Account
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// The decoder cannot have touched UUID (json:"-"), so the session user
+	// is the only possible owner.
+	req.UUID = currentUser.ID
+
+	if req.Type == "" || req.AccountNumber == "" || req.FullName == "" || req.ShortName == "" || req.ActiveSince == "" || req.OwnerName == "" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "All fields except Vollmacht are required",
+		})
+		return
+	}
+
+	if err := h.services.CreateAccount(req); err != nil {
+		fmt.Println("CREATE ACCOUNT ERROR:", err)
+		http.Error(w, "Failed to create account", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusCreated, map[string]interface{}{
+		"message": "Account created successfully",
+	})
+}
+
+func (h *HandlerLayerInstance) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	accountID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid account id",
+		})
+		return
+	}
+
+	deleted, err := h.services.DeleteAccount(accountID, currentUser.ID)
+	if err != nil {
+		fmt.Println("DELETE ACCOUNT ERROR:", err)
+		http.Error(w, "Failed to delete account", http.StatusInternalServerError)
+		return
+	}
+
+	// Same status and message whether the id belongs to another user or
+	// does not exist at all -- one shared path, no ownership oracle.
+	if !deleted {
+		util.WriteJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Account not found",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Account deleted successfully",
 	})
 }
 
