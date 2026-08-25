@@ -303,6 +303,75 @@ func (r *RepositoryLayerInstance) DeleteAccount(accountID int64, userUUID string
 	return rowsAffected > 0, nil
 }
 
+// CreateBooking posts one or two transaction legs (two only for a transfer)
+// and their matching saldo updates inside a single sql.Tx: either every leg
+// lands, or none does. The caller has already decided each leg's sign; this
+// method just posts what it is given, atomically.
+func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning booking transaction: %w", err)
+	}
+
+	// Rolls back only when the named return err is non-nil at the time this
+	// closure runs. err must stay a named return and must never be shadowed
+	// with := anywhere in this function -- either mistake would leave this
+	// check looking at a nil err after a failed leg and silently skip the
+	// rollback, committing half a transfer. After a successful Commit, err
+	// is nil here and this is a no-op; if Commit itself fails, Rollback on
+	// an already-finished tx returns sql.ErrTxDone, which is expected and
+	// intentionally discarded.
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	for _, leg := range legs {
+		if _, err = tx.Exec(`
+			INSERT INTO transactions (uuid, account_id, amount, description, category, transaction_date)
+			VALUES ($1, $2, $3, $4, $5, $6::date)
+		`, leg.UUID, leg.AccountID, leg.Amount, leg.Description, leg.Category, leg.TransactionDate); err != nil {
+			err = fmt.Errorf("inserting transaction: %w", err)
+			return err
+		}
+
+		var result sql.Result
+		result, err = tx.Exec(`
+			UPDATE accounts SET saldo = saldo + $1 WHERE account_id = $2 AND uuid = $3
+		`, leg.Amount, leg.AccountID, leg.UUID)
+		if err != nil {
+			err = fmt.Errorf("updating account saldo: %w", err)
+			return err
+		}
+
+		var rowsAffected int64
+		rowsAffected, err = result.RowsAffected()
+		if err != nil {
+			err = fmt.Errorf("checking saldo update result: %w", err)
+			return err
+		}
+
+		// The uuid condition in the WHERE clause above is not redundant
+		// with the handler's ownership check -- it is the last line of
+		// defence at the exact statement that mutates money. A zero-row
+		// result here means the account id and uuid did not match
+		// together, and this turns that silent no-op into a rolled-back
+		// error instead of a booking that "succeeded" without moving money.
+		if rowsAffected != 1 {
+			err = fmt.Errorf("updating account saldo: expected 1 row affected, got %d", rowsAffected)
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		err = fmt.Errorf("committing booking transaction: %w", err)
+		return err
+	}
+
+	return nil
+}
+
 func (r *RepositoryLayerInstance) GetAllSessions() (*sql.Rows, error) {
 	sessions, err := r.db.Query(`
 		SELECT session_id, uuid, created_at, expires_at FROM sessions

@@ -26,3 +26,23 @@ type Account struct {
 	OwnerName   string `json:"owner_name"`
 	Vollmacht   string `json:"vollmacht"`
 }
+
+type Transaction struct {
+	ID int64 `json:"id"`
+	// UUID is the owning user and is derived exclusively from the session
+	// cookie, never the request body: json:"-" keeps it unreachable to the
+	// decoder on the way in and out of the response on the way out.
+	UUID        string  `json:"-"`
+	AccountID   int64   `json:"account_id"`
+	Amount      float64 `json:"amount"`
+	Description string  `json:"description"`
+	Category    string  `json:"category"`
+	// TransactionDate is a string, not time.Time, for the same reason
+	// Account.ActiveSince is: the wire format stays a plain YYYY-MM-DD and
+	// lib/pq's time.Time round-trip is avoided entirely.
+	TransactionDate string `json:"transaction_date"`
+	// TransferToAccountID is zero when this booking is not a transfer. There
+	// is no separate boolean flag on the wire -- this single field is what
+	// makes a request a transfer.
+	TransferToAccountID int64 `json:"transfer_to_account_id"`
+}

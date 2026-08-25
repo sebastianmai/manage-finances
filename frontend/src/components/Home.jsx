@@ -105,6 +105,11 @@ export default function Home() {
                     </>
                 )}
             </div>
+            <div>
+                <button className="bg-ui-btn text-ui-btn-text font-bold py-2 px-4 rounded-md">
+                    <NavLink to="/transactions/new">New booking</NavLink>
+                </button>
+            </div>
         </div>
     );
 }

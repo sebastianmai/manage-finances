@@ -105,6 +105,10 @@ func (s *ServiceLayerInstance) DeleteAccount(accountID int64, userUUID string) (
 	return s.repository.DeleteAccount(accountID, userUUID)
 }
 
+func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {
+	return s.repository.CreateBooking(legs)
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {

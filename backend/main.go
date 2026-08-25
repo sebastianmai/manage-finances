@@ -33,6 +33,7 @@ func main() {
 	router.HandleFunc("/accounts", h.GetAccounts).Methods("GET")
 	router.HandleFunc("/accounts", h.CreateAccount).Methods("POST")
 	router.HandleFunc("/accounts/{id}", h.DeleteAccount).Methods("DELETE")
+	router.HandleFunc("/transactions", h.CreateTransaction).Methods("POST")
 	router.HandleFunc("/logout", h.Logout).Methods("POST")
 
 	log.Println("Server running on http://localhost:8080")

@@ -112,6 +112,29 @@ describe('Home', () => {
     expect(screen.getByText(normalizeSpace(EUR.format(1234.5)))).toBeInTheDocument();
   });
 
+  test('logged-in view exposes a link to /transactions/new', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+      .mockResolvedValueOnce(jsonResponse({ balance: 0 }));
+
+    renderWithRouter(<Home />);
+
+    expect(await screen.findByText('Welcome back, Ada')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'New booking' })).toHaveAttribute(
+      'href',
+      '/transactions/new'
+    );
+  });
+
+  test('logged-out hero does not render the new-booking link', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Home />);
+
+    expect(await screen.findByText('Welcome to My-Finances')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'New booking' })).not.toBeInTheDocument();
+  });
+
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 
