@@ -58,7 +58,7 @@ function setup() {
   return renderAtRoute(<TransactionsPage />, {
     route: '/transactions',
     path: '/transactions',
-    sentinels: ['/login'],
+    sentinels: ['/login', '/transactions/new'],
   });
 }
 
@@ -220,6 +220,23 @@ describe('TransactionsPage', () => {
       expect(await screen.findByText('No transactions yet.')).toBeInTheDocument();
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
     });
+
+    test('"Add booking" is a link to /transactions/new; clicking it navigates there; no inline form is present', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ transactions: [] }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+      const user = userEvent.setup();
+      setup();
+
+      const link = await screen.findByRole('link', { name: 'Add booking' });
+      expect(link).toHaveAttribute('href', '/transactions/new');
+      expect(screen.queryByLabelText('Date:')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save booking' })).not.toBeInTheDocument();
+
+      await user.click(link);
+
+      expect(await screen.findByText('navigated:/transactions/new')).toBeInTheDocument();
+    });
   });
 
   describe('sorting', () => {
@@ -367,6 +384,38 @@ describe('TransactionsPage', () => {
       await user.type(screen.getByLabelText('Search descriptions:'), 'run');
 
       expect(orderedTxnKeys()).toEqual(['txn1', 'txn2']);
+    });
+
+    test('the clear button is absent while the search box is empty and appears once text is typed', async () => {
+      const user = userEvent.setup();
+      setupThreeTxns();
+
+      await screen.findByText(txn1.description);
+
+      expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+
+      await user.type(screen.getByLabelText('Search descriptions:'), 'run');
+
+      expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument();
+    });
+
+    test('clicking the clear button empties the search box and restores every row', async () => {
+      const user = userEvent.setup();
+      setupThreeTxns();
+
+      await screen.findByText(txn1.description);
+
+      const searchInput = screen.getByLabelText('Search descriptions:');
+      await user.type(searchInput, 'run');
+      expect(screen.queryByText(txn3.description)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Clear search' }));
+
+      expect(searchInput).toHaveValue('');
+      expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument();
+      expect(screen.getByText(txn1.description)).toBeInTheDocument();
+      expect(screen.getByText(txn2.description)).toBeInTheDocument();
+      expect(screen.getByText(txn3.description)).toBeInTheDocument();
     });
   });
 

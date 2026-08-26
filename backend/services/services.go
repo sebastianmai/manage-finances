@@ -123,6 +123,10 @@ func (s *ServiceLayerInstance) UpdateAccountFlags(accountID, userUUID string, ak
 	return s.repository.UpdateAccountFlags(accountID, userUUID, aktiv, includeInSaldo)
 }
 
+func (s *ServiceLayerInstance) UpdateAccount(userUUID string, account models.Account) (bool, error) {
+	return s.repository.UpdateAccount(userUUID, account)
+}
+
 func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {
 	return s.repository.CreateBooking(legs)
 }

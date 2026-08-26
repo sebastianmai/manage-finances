@@ -385,6 +385,50 @@ func (r *RepositoryLayerInstance) UpdateAccountFlags(accountID, userUUID string,
 	return rowsAffected > 0, nil
 }
 
+// UpdateAccount replaces every editable field on an existing account. It
+// enforces ownership in the WHERE clause, matching DeleteAccount and
+// UpdateAccountFlags: an update that matches nothing is reported identically
+// whether the row is absent or owned by someone else. account_id and uuid
+// are deliberately absent from the SET list -- an account cannot be moved
+// to a different id or a different owner via this call.
+func (r *RepositoryLayerInstance) UpdateAccount(userUUID string, account models.Account) (bool, error) {
+	result, err := r.db.Exec(`
+		UPDATE accounts SET
+			type = $1, account_number = $2, full_name = $3, short_name = $4,
+			saldo = $5, active_since = $6, owner_name = $7, vollmacht = NULLIF($8, ''),
+			aktiv = $9, include_in_saldo = $10, zinssatz = $11, basiszins = $12,
+			comment = NULLIF($13, '')
+		WHERE account_id = $14 AND uuid = $15
+	`,
+		account.Type,
+		account.AccountNumber,
+		account.FullName,
+		account.ShortName,
+		account.Saldo,
+		account.ActiveSince,
+		account.OwnerName,
+		account.Vollmacht,
+		account.Aktiv,
+		account.IncludeInSaldo,
+		account.Zinssatz,
+		account.Basiszins,
+		account.Comment,
+		account.ID,
+		userUUID,
+	)
+
+	if err != nil {
+		return false, fmt.Errorf("updating account: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("updating account: %w", err)
+	}
+
+	return rowsAffected > 0, nil
+}
+
 // CreateBooking posts one or two transaction legs (two only for a transfer)
 // and their matching saldo updates inside a single sql.Tx: either every leg
 // lands, or none does. The caller has already decided each leg's sign; this

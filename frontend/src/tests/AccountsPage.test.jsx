@@ -45,33 +45,12 @@ const account2 = {
   comment: '',
 };
 
-// Type defaults to 'Haupt' (already a valid selection), so it is
-// deliberately absent here -- it's a <select>, not a text field, and the
-// default already satisfies the required-field check without any action.
-const validFormEntries = [
-  ['Account nr / IBAN:', 'DE99 1111 2222'],
-  ['Full name:', 'Depot Konto'],
-  ['Short name:', 'Depot'],
-  ['Saldo:', '100'],
-  ['Active since:', '2022-03-01'],
-  ['Owner:', 'Ada Lovelace'],
-];
-
 function setup() {
   return renderAtRoute(<AccountsPage />, {
     route: '/accounts',
     path: '/accounts',
-    sentinels: ['/login'],
+    sentinels: ['/login', '/accounts/new', '/accounts/:id/edit'],
   });
-}
-
-async function fillValidForm(user, { skip } = {}) {
-  for (const [label, value] of validFormEntries) {
-    if (skip === label) {
-      continue;
-    }
-    await user.type(screen.getByLabelText(label), value);
-  }
 }
 
 describe('AccountsPage', () => {
@@ -279,235 +258,32 @@ describe('AccountsPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  test('clicking Add account reveals thirteen labelled controls', async () => {
+  test('"Add account" is a link to /accounts/new; clicking it navigates there; no inline form is present', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
     const user = userEvent.setup();
     setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-
-    expect(screen.getByLabelText('Type:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Account nr / IBAN:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Full name:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Short name:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Saldo:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Active since:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Owner:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Vollmacht:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Aktiv:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Include in saldo:')).toBeInTheDocument();
-    expect(screen.getByLabelText('Zinssatz (%):')).toBeInTheDocument();
-    expect(screen.getByLabelText('Basiszins (%):')).toBeInTheDocument();
-    expect(screen.getByLabelText('Comment:')).toBeInTheDocument();
-  });
-
-  test('defaults on open: type Haupt, both flags checked, rates and comment empty', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-
-    expect(screen.getByLabelText('Type:')).toHaveValue('Haupt');
-    expect(screen.getByLabelText('Aktiv:')).toBeChecked();
-    expect(screen.getByLabelText('Include in saldo:')).toBeChecked();
-    expect(screen.getByLabelText('Zinssatz (%):')).toHaveValue(null);
-    expect(screen.getByLabelText('Basiszins (%):')).toHaveValue(null);
-    expect(screen.getByLabelText('Comment:')).toHaveValue('');
-  });
-
-  test('submitting with a required field empty shows validation error, keeps form open, issues no POST', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user, { skip: 'Owner:' });
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(
-      await screen.findByText(
-        'Type, account number, full name, short name, saldo, active since and owner are required'
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Type:')).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1); // mount GET only, no POST
-  });
-
-  test('submitting with only Vollmacht empty DOES issue the POST', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
-      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-  });
-
-  test('create success: POSTs correct url/method/credentials/headers/body (saldo as number), closes form, refetches, shows new row', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
-      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await screen.findByText('Girokonto Sparkasse');
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const [url, options] = fetchMock.mock.calls[1];
-    expect(url).toBe('http://localhost:8080/accounts');
-    expect(options.method).toBe('POST');
-    expect(options.credentials).toBe('include');
-    expect(options.headers).toEqual(expect.objectContaining({ 'Content-Type': 'application/json' }));
-
-    const body = JSON.parse(options.body);
-    // Type was left at its default -- the field is a <select>, not typed into.
-    expect(body.type).toBe('Haupt');
-    expect(body.account_number).toBe('DE99 1111 2222');
-    expect(body.full_name).toBe('Depot Konto');
-    expect(body.short_name).toBe('Depot');
-    expect(body.saldo).toBe(100);
-    expect(typeof body.saldo).toBe('number');
-    expect(body.active_since).toBe('2022-03-01');
-    expect(body.owner_name).toBe('Ada Lovelace');
-
+    const link = await screen.findByRole('link', { name: 'Add account' });
+    expect(link).toHaveAttribute('href', '/accounts/new');
     expect(screen.queryByLabelText('Type:')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add account' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+
+    await user.click(link);
+
+    expect(await screen.findByText('navigated:/accounts/new')).toBeInTheDocument();
   });
 
-  test('create with defaults untouched: posts real booleans, null rates, empty comment', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
-      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
+  test('each row carries a per-row Edit link to /accounts/{id}/edit; clicking it navigates there', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
     const user = userEvent.setup();
     setup();
 
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
+    const link = await screen.findByRole('link', { name: `Edit ${account1.short_name}` });
+    expect(link).toHaveAttribute('href', `/accounts/${account1.id}/edit`);
 
-    await screen.findByText('Girokonto Sparkasse');
+    await user.click(link);
 
-    const [, options] = fetchMock.mock.calls[1];
-    const body = JSON.parse(options.body);
-
-    expect(body.aktiv).toBe(true);
-    expect(typeof body.aktiv).toBe('boolean');
-    expect(body.include_in_saldo).toBe(true);
-    expect(typeof body.include_in_saldo).toBe('boolean');
-    expect(body.zinssatz).toBeNull();
-    expect(body.basiszins).toBeNull();
-    expect(body.comment).toBe('');
-  });
-
-  test('unchecking Include in saldo only: aktiv stays true, include_in_saldo becomes false', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
-      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByLabelText('Include in saldo:'));
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await screen.findByText('Girokonto Sparkasse');
-
-    const [, options] = fetchMock.mock.calls[1];
-    const body = JSON.parse(options.body);
-
-    expect(body.aktiv).toBe(true);
-    expect(body.include_in_saldo).toBe(false);
-  });
-
-  test('selecting Anlage and filling the optional fields: posts type Anlage, numeric rates, and the comment', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
-      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.selectOptions(screen.getByLabelText('Type:'), 'Anlage');
-    await user.type(screen.getByLabelText('Zinssatz (%):'), '2.5');
-    await user.type(screen.getByLabelText('Basiszins (%):'), '1.75');
-    await user.type(screen.getByLabelText('Comment:'), 'A note');
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    await screen.findByText('Girokonto Sparkasse');
-
-    const [, options] = fetchMock.mock.calls[1];
-    const body = JSON.parse(options.body);
-
-    expect(body.type).toBe('Anlage');
-    expect(body.zinssatz).toBe(2.5);
-    expect(typeof body.zinssatz).toBe('number');
-    expect(body.basiszins).toBe(1.75);
-    expect(typeof body.basiszins).toBe('number');
-    expect(body.comment).toBe('A note');
-  });
-
-  test('create failure (not-ok): shows create error, keeps form open', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockResolvedValueOnce(notOkResponse(500));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(await screen.findByText('Failed to create account')).toBeInTheDocument();
-    expect(screen.getByLabelText('Type:')).toBeInTheDocument();
-  });
-
-  test('create rejection: shows create error, calls console.error, keeps form open', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
-      .mockRejectedValueOnce(new Error('network down'));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-
-    expect(await screen.findByText('Failed to create account')).toBeInTheDocument();
-    expect(screen.getByLabelText('Type:')).toBeInTheDocument();
-    expect(errorSpy).toHaveBeenCalled();
-
-    errorSpy.mockRestore();
-  });
-
-  test('cancel closes the form and issues no POST', async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
-    const user = userEvent.setup();
-    setup();
-
-    await user.click(await screen.findByRole('button', { name: 'Add account' }));
-    await fillValidForm(user);
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(screen.queryByLabelText('Type:')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add account' })).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1); // mount GET only, no POST
+    expect(await screen.findByText('navigated:/accounts/:id/edit')).toBeInTheDocument();
   });
 
   test('each row carries a per-row delete control with a distinguishing accessible name', async () => {

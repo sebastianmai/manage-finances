@@ -14,6 +14,12 @@
 :root{
   --btn-warn: #dc2626;
   --signup-btn: #2563eb;
+  /* Dedicated data-viz colors, kept separate from --btn/--signup-btn: those
+     two happen to be the identical blue in the dark theme, which made the
+     Zinssatz/Basiszins bars indistinguishable there. These stay fixed
+     across both themes instead of following the theme swap. */
+  --chart-zinssatz: #2563eb;
+  --chart-basiszins: #d97706;
 }
 
 [data-theme="dark"] {

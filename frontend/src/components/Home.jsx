@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useState, useEffect } from 'react';
+import AccountRatesChart from './AccountRatesChart';
 
 const balanceFormatter = new Intl.NumberFormat('de-DE', {
     style: 'currency',
@@ -10,8 +11,10 @@ export default function Home() {
 
     const [user, setUser] = useState(null);
     const [balance, setBalance] = useState(null);
+    const [accounts, setAccounts] = useState([]);
     const [checkingAuth, setCheckingAuth] = useState(true);
     const [balanceError, setBalanceError] = useState("");
+    const [accountsError, setAccountsError] = useState("");
 
     useEffect(() => {
         const getUser = async () => {
@@ -30,6 +33,9 @@ export default function Home() {
                 const { user: loggedInUser } = await response.json();
                 setUser(loggedInUser);
 
+                // Balance and accounts are fetched independently -- one
+                // failing must not skip the other, so neither block returns
+                // out of the enclosing getUser() early.
                 try {
                     const balanceResponse = await fetch("http://localhost:8080/balance", {
                         method: "GET",
@@ -38,15 +44,32 @@ export default function Home() {
 
                     if (!balanceResponse.ok) {
                         setBalanceError("Failed to load balance");
-                        return;
+                    } else {
+                        const { balance: userBalance } = await balanceResponse.json();
+                        setBalance(userBalance);
+                        setBalanceError("");
                     }
-
-                    const { balance: userBalance } = await balanceResponse.json();
-                    setBalance(userBalance);
-                    setBalanceError("");
                 } catch (error) {
                     console.error("Error getting balance:", error);
                     setBalanceError("Failed to load balance");
+                }
+
+                try {
+                    const accountsResponse = await fetch("http://localhost:8080/accounts", {
+                        method: "GET",
+                        credentials: "include",
+                    });
+
+                    if (!accountsResponse.ok) {
+                        setAccountsError("Failed to load accounts");
+                    } else {
+                        const { accounts: userAccounts } = await accountsResponse.json();
+                        setAccounts(userAccounts);
+                        setAccountsError("");
+                    }
+                } catch (error) {
+                    console.error("Error getting accounts:", error);
+                    setAccountsError("Failed to load accounts");
                 }
             } catch (error) {
                 console.error("Error getting user:", error);
@@ -103,6 +126,14 @@ export default function Home() {
                             </p>
                         )}
                     </>
+                )}
+            </div>
+            <div className="bg-ui-light-bg p-6 rounded-lg shadow-md">
+                <p className="text-ui-text/70 mb-2">Rates by account</p>
+                {accountsError ? (
+                    <p className="text-ui-btn-warn">{accountsError}</p>
+                ) : (
+                    <AccountRatesChart accounts={accounts} />
                 )}
             </div>
             <div>

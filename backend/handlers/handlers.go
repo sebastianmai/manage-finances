@@ -469,6 +469,120 @@ func (h *HandlerLayerInstance) UpdateAccountFlags(w http.ResponseWriter, r *http
 	})
 }
 
+// UpdateAccount replaces every editable field on an existing account (PUT,
+// not PATCH: the body is the full new representation, not a partial diff --
+// UpdateAccountFlags already owns the partial-update case for the two
+// overview-table checkboxes).
+func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	if _, err := uuid.Parse(vars["id"]); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid account id",
+		})
+		return
+	}
+
+	// Same buffered double-unmarshal as CreateAccount, and for the same
+	// reason: models.Account carries Aktiv/IncludeInSaldo as plain bool, so
+	// a single decode cannot distinguish an omitted flag from an explicit
+	// false.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var req models.Account
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var flags struct {
+		Aktiv          *bool `json:"aktiv"`
+		IncludeInSaldo *bool `json:"include_in_saldo"`
+	}
+	if err := json.Unmarshal(body, &flags); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// The row to update is the id in the URL, never one a client could
+	// smuggle into the body -- req.ID is overwritten unconditionally, same
+	// as CreateAccount overwrites it with a server-generated id.
+	req.ID = vars["id"]
+	req.UUID = currentUser.ID
+
+	if flags.Aktiv == nil {
+		req.Aktiv = true
+	} else {
+		req.Aktiv = *flags.Aktiv
+	}
+	if flags.IncludeInSaldo == nil {
+		req.IncludeInSaldo = true
+	} else {
+		req.IncludeInSaldo = *flags.IncludeInSaldo
+	}
+
+	if req.Type == "" || req.AccountNumber == "" || req.FullName == "" || req.ShortName == "" || req.ActiveSince == "" || req.OwnerName == "" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Type, account number, full name, short name, saldo, active since and owner are required",
+		})
+		return
+	}
+
+	if req.Type != "Haupt" && req.Type != "Anlage" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Type must be Haupt or Anlage",
+		})
+		return
+	}
+
+	if len(req.Comment) > 500 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Comment must be 500 characters or fewer",
+		})
+		return
+	}
+
+	updated, err := h.services.UpdateAccount(currentUser.ID, req)
+	if err != nil {
+		fmt.Println("UPDATE ACCOUNT ERROR:", err)
+		http.Error(w, "Failed to update account", http.StatusInternalServerError)
+		return
+	}
+
+	// Same status and message whether the id belongs to another user or
+	// does not exist at all -- one shared path, no ownership oracle,
+	// matching DeleteAccount and UpdateAccountFlags.
+	if !updated {
+		util.WriteJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Account not found",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Account updated successfully",
+	})
+}
+
 func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {

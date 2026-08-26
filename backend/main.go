@@ -34,6 +34,7 @@ func main() {
 	router.HandleFunc("/accounts", h.CreateAccount).Methods("POST")
 	router.HandleFunc("/accounts/{id}", h.DeleteAccount).Methods("DELETE")
 	router.HandleFunc("/accounts/{id}", h.UpdateAccountFlags).Methods("PATCH")
+	router.HandleFunc("/accounts/{id}", h.UpdateAccount).Methods("PUT")
 	router.HandleFunc("/transactions", h.CreateTransaction).Methods("POST")
 	router.HandleFunc("/transactions", h.GetTransactions).Methods("GET")
 	router.HandleFunc("/transactions/{id}", h.UpdateTransaction).Methods("PATCH")

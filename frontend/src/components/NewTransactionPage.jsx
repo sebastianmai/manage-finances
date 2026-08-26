@@ -1,18 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-
-// Frontend-only mock category list -- deliberately not backed by an
-// endpoint, table, or column. See PLAN.md for the reasoning.
-const CATEGORIES = [
-    'Groceries',
-    'Housing',
-    'Transportation',
-    'Utilities',
-    'Entertainment',
-    'Health',
-    'Dining',
-    'Savings',
-];
+import { CATEGORIES } from '../constants/categories';
 
 const EMPTY_FORM = {
     transaction_date: '',

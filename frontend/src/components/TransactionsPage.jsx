@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 
 const amountFormatter = new Intl.NumberFormat('de-DE', {
@@ -240,17 +240,49 @@ export default function TransactionsPage() {
             {error && (
                 <p className="text-ui-btn-warn">{error}</p>
             )}
-            <div className="grid grid-cols-[140px_1fr] items-center gap-2">
-                <label htmlFor="search" className="text-ui-text font-bold">
-                    Search descriptions:
-                </label>
-                <input
-                    className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
-                    type="text"
-                    id="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                />
+            <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="flex flex-col gap-1">
+                    <label htmlFor="search" className="text-ui-text font-bold text-sm">
+                        Search descriptions:
+                    </label>
+                    <div className="relative">
+                        <svg
+                            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            aria-hidden="true"
+                        >
+                            <circle cx="9" cy="9" r="6" />
+                            <line x1="17" y1="17" x2="13.5" y2="13.5" strokeLinecap="round" />
+                        </svg>
+                        <input
+                            className="w-72 max-w-full rounded-full bg-ui-bg text-ui-text py-2 pl-9 pr-9 focus:outline-none focus:ring-2"
+                            type="text"
+                            id="search"
+                            placeholder="e.g. groceries, rent…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                        {search && (
+                            <button
+                                type="button"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-ui-text/50 hover:text-ui-text"
+                                aria-label="Clear search"
+                                onClick={() => setSearch('')}
+                            >
+                                ×
+                            </button>
+                        )}
+                    </div>
+                </div>
+                <NavLink
+                    to="/transactions/new"
+                    className="inline-block bg-ui-btn text-ui-btn-text font-bold py-2 px-4 rounded-md"
+                >
+                    Add booking
+                </NavLink>
             </div>
             <div className="bg-ui-light-bg p-6 rounded-lg shadow-md text-ui-text">
                 {transactions.length === 0 ? (

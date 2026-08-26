@@ -11,6 +11,13 @@ import {
   normalizeSpace,
 } from '../test-utils';
 
+const accountWithRates = {
+  id: 'acct-1',
+  short_name: 'Giro',
+  zinssatz: 1.5,
+  basiszins: 0.25,
+};
+
 describe('Home', () => {
   let fetchMock;
 
@@ -31,7 +38,7 @@ describe('Home', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  test('/me not-ok -> logged-out hero renders and balance is never requested', async () => {
+  test('/me not-ok -> logged-out hero renders and balance/accounts are never requested', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 
     renderWithRouter(<Home />);
@@ -45,12 +52,17 @@ describe('Home', () => {
       expect.stringContaining('/balance'),
       expect.anything()
     );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/accounts'),
+      expect.anything()
+    );
   });
 
   test('/me ok + /balance ok zero -> welcome-back with name, formatted amount, and no-transactions hint', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(jsonResponse({ balance: 0 }));
+      .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
 
     renderWithRouter(<Home />);
 
@@ -62,7 +74,8 @@ describe('Home', () => {
   test('/me ok + /balance ok non-zero -> formatted amount shows, no hint', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }));
+      .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
 
     renderWithRouter(<Home />);
 
@@ -75,7 +88,8 @@ describe('Home', () => {
   test('/me ok + /balance not-ok -> error renders, numeric balance paragraph does not', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(notOkResponse(500));
+      .mockResolvedValueOnce(notOkResponse(500))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
 
     renderWithRouter(<Home />);
 
@@ -87,7 +101,8 @@ describe('Home', () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockRejectedValueOnce(new Error('network down'));
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
 
     renderWithRouter(<Home />);
 
@@ -95,6 +110,18 @@ describe('Home', () => {
     expect(errorSpy).toHaveBeenCalled();
 
     errorSpy.mockRestore();
+  });
+
+  test('a failing /balance does not block /accounts from being fetched -- the two are independent', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+      .mockResolvedValueOnce(notOkResponse(500))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }));
+
+    renderWithRouter(<Home />);
+
+    expect(await screen.findByText('Failed to load balance')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Zinssatz and Basiszins/ })).toBeInTheDocument();
   });
 
   test('authchange re-fetch flips logged-out hero to welcome-back with balance', async () => {
@@ -105,7 +132,8 @@ describe('Home', () => {
 
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }));
+      .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
     await dispatchAuthChange();
 
     expect(await screen.findByText('Welcome back, Ada')).toBeInTheDocument();
@@ -115,7 +143,8 @@ describe('Home', () => {
   test('logged-in view exposes a link to /transactions/new', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(jsonResponse({ balance: 0 }));
+      .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
 
     renderWithRouter(<Home />);
 
@@ -135,18 +164,15 @@ describe('Home', () => {
     expect(screen.queryByRole('link', { name: 'New booking' })).not.toBeInTheDocument();
   });
 
-  test('renders the server balance verbatim and never fetches /accounts to re-derive it', async () => {
+  test('renders the server balance verbatim, not re-derived from the /accounts response', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
-      .mockResolvedValueOnce(jsonResponse({ balance: 100 }));
+      .mockResolvedValueOnce(jsonResponse({ balance: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }));
 
     renderWithRouter(<Home />);
 
     expect(await screen.findByText(normalizeSpace(EUR.format(100)))).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('/accounts'),
-      expect.anything()
-    );
   });
 
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
@@ -163,5 +189,91 @@ describe('Home', () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('rates chart', () => {
+    test('issues a GET to /accounts with credentials: include', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }));
+
+      renderWithRouter(<Home />);
+
+      await screen.findByRole('img', { name: /Zinssatz and Basiszins/ });
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        'http://localhost:8080/accounts',
+        expect.objectContaining({ method: 'GET', credentials: 'include' })
+      );
+    });
+
+    test('with rated accounts: renders the chart and both legend labels', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByRole('img', { name: /Zinssatz and Basiszins/ })).toBeInTheDocument();
+      expect(screen.getByText('Zinssatz')).toBeInTheDocument();
+      expect(screen.getByText('Basiszins')).toBeInTheDocument();
+    });
+
+    test('empty accounts list: shows the no-accounts message, not the chart', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText('No accounts yet.')).toBeInTheDocument();
+      expect(screen.queryByRole('img', { name: /Zinssatz and Basiszins/ })).not.toBeInTheDocument();
+    });
+
+    test('an account with neither rate set still renders in the chart, not the no-accounts message', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ accounts: [{ id: 'a', short_name: 'Giro', zinssatz: null, basiszins: null }] })
+        );
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByRole('img', { name: /Zinssatz and Basiszins/ })).toBeInTheDocument();
+      expect(screen.getByText('Giro')).toBeInTheDocument();
+      expect(screen.queryByText('No accounts yet.')).not.toBeInTheDocument();
+    });
+
+    test('/accounts not-ok: shows Failed to load accounts, not the chart', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(notOkResponse(500));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText('Failed to load accounts')).toBeInTheDocument();
+      expect(screen.queryByRole('img', { name: /Zinssatz and Basiszins/ })).not.toBeInTheDocument();
+    });
+
+    test('/accounts rejects: shows Failed to load accounts, calls console.error, no crash', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockRejectedValueOnce(new Error('network down'));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText('Failed to load accounts')).toBeInTheDocument();
+      expect(errorSpy).toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+    });
   });
 });

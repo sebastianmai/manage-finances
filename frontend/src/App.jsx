@@ -6,6 +6,8 @@ import Home from './components/Home'
 import Login from './components/Login'
 import ProfilePage from './components/ProfilePage'
 import AccountsPage from './components/AccountsPage'
+import NewAccountPage from './components/NewAccountPage'
+import EditAccountPage from './components/EditAccountPage'
 import TransactionsPage from './components/TransactionsPage'
 import NewTransactionPage from './components/NewTransactionPage'
 
@@ -30,6 +32,8 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/accounts/new" element={<NewAccountPage />} />
+            <Route path="/accounts/:id/edit" element={<EditAccountPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/new" element={<NewTransactionPage />} />
             <Route path="/" element={<Home />} />
