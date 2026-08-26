@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AccountsPage from '../components/AccountsPage';
 import {
@@ -45,11 +45,44 @@ const account2 = {
   comment: '',
 };
 
+// account3 is dedicated to the sorting suite. Every value is load-bearing:
+// a negative zinssatz (with basiszins left unset) proves the null-is-lower
+// comparator branch, an empty-string vollmacht on account2 vs. a filled one
+// here fixes a strict order, and all three full names are mutually
+// non-overlapping so a row can be identified by full_name substring alone.
+const account3 = {
+  id: '33333333-3333-3333-3333-333333333333',
+  type: 'Anlage',
+  account_number: 'DE00 5555 0000',
+  full_name: 'Sparbuch Volksbank',
+  short_name: 'Spar',
+  saldo: -50,
+  active_since: '2019-03-10',
+  owner_name: 'Alan Turing',
+  vollmacht: 'Ada Lovelace',
+  aktiv: true,
+  include_in_saldo: false,
+  zinssatz: -0.25,
+  basiszins: null,
+  comment: 'Backup savings',
+};
+
 function setup() {
   return renderAtRoute(<AccountsPage />, {
     route: '/accounts',
     path: '/accounts',
     sentinels: ['/login', '/accounts/new', '/accounts/:id/edit'],
+  });
+}
+
+/** Returns which of account1/account2/account3 are currently rendered, in row order. */
+function orderedAccountKeys() {
+  const rows = screen.getAllByRole('row').slice(1); // skip header row
+  return rows.map((row) => {
+    if (row.textContent.includes(account1.full_name)) return 'account1';
+    if (row.textContent.includes(account2.full_name)) return 'account2';
+    if (row.textContent.includes(account3.full_name)) return 'account3';
+    return null;
   });
 }
 
@@ -380,5 +413,279 @@ describe('AccountsPage', () => {
     expect(screen.getByText('Girokonto Sparkasse')).toBeInTheDocument();
 
     errorSpy.mockRestore();
+  });
+
+  describe('sorting', () => {
+    function setupThreeAccounts() {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2, account3] }));
+      return setup();
+    }
+
+    test('clicking Saldo sorts numerically ascending, distinguishing numeric from lexicographic order; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+      // Numeric ascending: -50, 500, 1234.56 -> account3, account2, account1.
+      // Lexicographic ascending would instead give account3, account1, account2.
+      expect(orderedAccountKeys()).toEqual(['account3', 'account2', 'account1']);
+
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account2', 'account3']);
+    });
+
+    test('default order is active_since ascending, mirroring the backend ORDER BY', async () => {
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      expect(orderedAccountKeys()).toEqual(['account3', 'account1', 'account2']);
+    });
+
+    test('Type: ascending puts the single Haupt row last, descending puts it first', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Type/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(2);
+
+      await user.click(screen.getByRole('button', { name: /^Type/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(0);
+    });
+
+    test('Account nr / IBAN: ascending gives account1, account3, account2; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Account nr/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+
+      await user.click(screen.getByRole('button', { name: /^Account nr/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+    });
+
+    test('Full name: ascending gives account1, account3, account2; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Full name/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+
+      await user.click(screen.getByRole('button', { name: /^Full name/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+    });
+
+    test('Short name: ascending gives account1, account3, account2; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Short name/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+
+      await user.click(screen.getByRole('button', { name: /^Short name/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+    });
+
+    test('Zinssatz: ascending gives account2, account3, account1 - unset rate first, then negative, then positive', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Zinssatz/ }));
+      // Coercing the unset rate to 0 would instead give account3, account2,
+      // account1 -- exactly what this assertion exists to catch.
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+
+      await user.click(screen.getByRole('button', { name: /^Zinssatz/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+    });
+
+    test('Basiszins: ascending puts the only set-rate row last, descending puts it first', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Basiszins/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(2);
+
+      await user.click(screen.getByRole('button', { name: /^Basiszins/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(0);
+    });
+
+    test('Active since: as the default active column, the first click reverses to descending, the second returns to ascending', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Active since/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account1', 'account3']);
+
+      await user.click(screen.getByRole('button', { name: /^Active since/ }));
+      expect(orderedAccountKeys()).toEqual(['account3', 'account1', 'account2']);
+    });
+
+    test('Owner: ascending puts the distinct-owner row last, descending puts it first', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Owner/ }));
+      expect(orderedAccountKeys().indexOf('account3')).toBe(2);
+
+      await user.click(screen.getByRole('button', { name: /^Owner/ }));
+      expect(orderedAccountKeys().indexOf('account3')).toBe(0);
+    });
+
+    test('Vollmacht: ascending gives account2, account3, account1 - the row with no vollmacht first; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Vollmacht/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+
+      await user.click(screen.getByRole('button', { name: /^Vollmacht/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+    });
+
+    test('Aktiv: ascending puts the single inactive row first, descending puts it last', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Aktiv/ }));
+      expect(orderedAccountKeys().indexOf('account2')).toBe(0);
+
+      await user.click(screen.getByRole('button', { name: /^Aktiv/ }));
+      expect(orderedAccountKeys().indexOf('account2')).toBe(2);
+    });
+
+    test('In saldo: ascending puts the single included row last, descending puts it first', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^In saldo/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(2);
+
+      await user.click(screen.getByRole('button', { name: /^In saldo/ }));
+      expect(orderedAccountKeys().indexOf('account1')).toBe(0);
+    });
+
+    test('Comment: ascending gives account2, account3, account1 - the row with no comment first; clicking again reverses', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Comment/ }));
+      expect(orderedAccountKeys()).toEqual(['account2', 'account3', 'account1']);
+
+      await user.click(screen.getByRole('button', { name: /^Comment/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+    });
+
+    test('the active header shows a direction indicator, an inactive header does not', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+
+      expect(screen.getByRole('button', { name: /^Saldo/ }).textContent).toMatch(/[▲▼]/);
+      expect(screen.getByRole('button', { name: /^Type/ }).textContent).not.toMatch(/[▲▼]/);
+    });
+
+    test('switching to a different column starts it ascending and clears the arrow from the previous column, including the default Active since header', async () => {
+      const user = userEvent.setup();
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+
+      expect(screen.getByRole('button', { name: /^Saldo/ }).textContent).toContain('▲');
+      expect(screen.getByRole('button', { name: /^Active since/ }).textContent).not.toMatch(/[▲▼]/);
+    });
+
+    test('the Actions column header holds no sort control', async () => {
+      setupThreeAccounts();
+
+      await screen.findByText(account1.full_name);
+
+      const actionsHeader = screen
+        .getAllByRole('columnheader')
+        .find((header) => header.textContent === 'Actions');
+      expect(actionsHeader).toBeDefined();
+      expect(within(actionsHeader).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    test('sorting by Short name, then toggling In saldo on a row, leaves the row order unchanged', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2, account3] }))
+        .mockResolvedValueOnce(jsonResponse({ message: 'Account updated successfully' }));
+      const user = userEvent.setup();
+      setup();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Short name/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+
+      const toggle = screen.getByRole('checkbox', {
+        name: `Include in saldo: ${account1.short_name}`,
+      });
+      await user.click(toggle);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3', 'account2']);
+    });
+
+    test('sorting by Saldo descending, then deleting a row, leaves the survivors in the chosen order rather than the refetch order', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2, account3] }))
+        .mockResolvedValueOnce(jsonResponse({ message: 'Account deleted successfully' }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [account3, account1] }));
+      const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+      const user = userEvent.setup();
+      setup();
+
+      await screen.findByText(account1.full_name);
+
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+      await user.click(screen.getByRole('button', { name: /^Saldo/ }));
+      expect(orderedAccountKeys()).toEqual(['account1', 'account2', 'account3']);
+
+      await user.click(
+        await screen.findByRole('button', { name: new RegExp(`Delete.*${account2.short_name}`) })
+      );
+
+      await screen.findByText(account3.full_name);
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      // Refetch returned [account3, account1] in server order, but the
+      // descending-Saldo sort chosen before the delete must still apply.
+      expect(orderedAccountKeys()).toEqual(['account1', 'account3']);
+
+      confirmSpy.mockRestore();
+    });
   });
 });

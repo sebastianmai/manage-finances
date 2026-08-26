@@ -21,6 +21,38 @@ function formatRate(value) {
     return `${rateFormatter.format(value)} %`;
 }
 
+// The three numeric-rate/amount columns and the two checkbox columns need
+// their own comparators; every other sortable column falls through to a
+// plain text comparison.
+const NUMERIC_COLUMNS = ['saldo', 'zinssatz', 'basiszins'];
+const BOOLEAN_COLUMNS = ['aktiv', 'include_in_saldo'];
+
+// why: an unset rate is deliberately ranked below every real rate, including
+// a negative one -- coercing null/undefined to 0 would rank an unset rate
+// above a Negativzins, and a negative interest rate is real in this domain.
+function compareNumeric(a, b) {
+    const aUnset = a === null || a === undefined;
+    const bUnset = b === null || b === undefined;
+    if (aUnset && bUnset) {
+        return 0;
+    }
+    if (aUnset) {
+        return -1;
+    }
+    if (bUnset) {
+        return 1;
+    }
+    return a - b;
+}
+
+function compareBoolean(a, b) {
+    return Number(a) - Number(b);
+}
+
+function compareText(a, b) {
+    return (a || '').localeCompare(b || '');
+}
+
 export default function AccountsPage() {
 
     const navigate = useNavigate();
@@ -28,6 +60,10 @@ export default function AccountsPage() {
     const [accounts, setAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    // Default matches the backend's ORDER BY active_since ASC, full_name ASC
+    // (repository.go:253) -- so a user who never clicks a header sees the
+    // exact same row order the page has always rendered.
+    const [sort, setSort] = useState({ column: 'active_since', direction: 'asc' });
 
     const getAccounts = useCallback(async () => {
         try {
@@ -143,16 +179,47 @@ export default function AccountsPage() {
         }
     };
 
+    const handleSort = (column) => {
+        setSort((prev) => {
+            if (prev.column === column) {
+                return { column, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+            }
+            return { column, direction: 'asc' };
+        });
+    };
+
+    const sortIndicator = (column) => {
+        if (sort.column !== column) {
+            return '';
+        }
+        return sort.direction === 'asc' ? ' ▲' : ' ▼';
+    };
+
+    // Derived at render, never stored -- this is what makes the sort survive
+    // the optimistic flag toggle and the delete refetch, both of which call
+    // setAccounts and would otherwise wipe a pre-sorted-into-state list.
+    const sortedAccounts = [...accounts].sort((a, b) => {
+        let result;
+        if (NUMERIC_COLUMNS.includes(sort.column)) {
+            result = compareNumeric(a[sort.column], b[sort.column]);
+        } else if (BOOLEAN_COLUMNS.includes(sort.column)) {
+            result = compareBoolean(a[sort.column], b[sort.column]);
+        } else {
+            result = compareText(a[sort.column], b[sort.column]);
+        }
+        return sort.direction === 'desc' ? result * -1 : result;
+    });
+
     if (loading) {
         return (
-            <div className="bg-ui-light-bg p-6 rounded-lg shadow-md w-full max-w-md text-ui-text">
+            <div className="bg-ui-light-bg p-6 rounded-lg shadow-md w-full max-w-7xl text-ui-text">
                 Loading...
             </div>
         );
     }
 
     return (
-        <div className="w-full max-w-5xl flex flex-col gap-4">
+        <div className="w-full max-w-7xl flex flex-col gap-4">
             <h1 className="text-4xl font-bold text-ui-text">Accounts</h1>
             {error && (
                 <p className="text-ui-btn-warn">{error}</p>
@@ -165,24 +232,76 @@ export default function AccountsPage() {
                         <table className="w-full border-collapse text-sm text-left">
                             <thead className="bg-ui-bg">
                                 <tr>
-                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Type</th>
-                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Account nr / IBAN</th>
-                                    <th className="px-3 py-2 font-bold text-left">Full name</th>
-                                    <th className="px-3 py-2 font-bold text-left">Short name</th>
-                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Saldo</th>
-                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Zinssatz</th>
-                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Basiszins</th>
-                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Active since</th>
-                                    <th className="px-3 py-2 font-bold text-left">Owner</th>
-                                    <th className="px-3 py-2 font-bold text-left">Vollmacht</th>
-                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Aktiv</th>
-                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">In saldo</th>
-                                    <th className="px-3 py-2 font-bold text-left">Comment</th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('type')}>
+                                            Type{sortIndicator('type')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('account_number')}>
+                                            Account nr / IBAN{sortIndicator('account_number')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left">
+                                        <button type="button" onClick={() => handleSort('full_name')}>
+                                            Full name{sortIndicator('full_name')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left">
+                                        <button type="button" onClick={() => handleSort('short_name')}>
+                                            Short name{sortIndicator('short_name')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('saldo')}>
+                                            Saldo{sortIndicator('saldo')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('zinssatz')}>
+                                            Zinssatz{sortIndicator('zinssatz')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('basiszins')}>
+                                            Basiszins{sortIndicator('basiszins')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('active_since')}>
+                                            Active since{sortIndicator('active_since')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left">
+                                        <button type="button" onClick={() => handleSort('owner_name')}>
+                                            Owner{sortIndicator('owner_name')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left">
+                                        <button type="button" onClick={() => handleSort('vollmacht')}>
+                                            Vollmacht{sortIndicator('vollmacht')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('aktiv')}>
+                                            Aktiv{sortIndicator('aktiv')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">
+                                        <button type="button" onClick={() => handleSort('include_in_saldo')}>
+                                            In saldo{sortIndicator('include_in_saldo')}
+                                        </button>
+                                    </th>
+                                    <th className="px-3 py-2 font-bold text-left">
+                                        <button type="button" onClick={() => handleSort('comment')}>
+                                            Comment{sortIndicator('comment')}
+                                        </button>
+                                    </th>
                                     <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {accounts.map((account) => (
+                                {sortedAccounts.map((account) => (
                                     <tr key={account.id} className="border-b border-ui-text/10 hover:bg-ui-bg/40">
                                         <td className="px-3 py-2 whitespace-nowrap">{account.type}</td>
                                         <td className="px-3 py-2 whitespace-nowrap">{account.account_number}</td>

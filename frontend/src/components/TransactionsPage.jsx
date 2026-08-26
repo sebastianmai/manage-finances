@@ -266,14 +266,14 @@ export default function TransactionsPage() {
 
     if (loading) {
         return (
-            <div className="bg-ui-light-bg p-6 rounded-lg shadow-md w-full max-w-md text-ui-text">
+            <div className="bg-ui-light-bg p-6 rounded-lg shadow-md w-full max-w-7xl text-ui-text">
                 Loading...
             </div>
         );
     }
 
     return (
-        <div className="w-full max-w-5xl flex flex-col gap-4">
+        <div className="w-full max-w-7xl flex flex-col gap-4">
             <h1 className="text-4xl font-bold text-ui-text">Transactions</h1>
             {error && (
                 <p className="text-ui-btn-warn">{error}</p>
