@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
+import { CATEGORIES } from '../constants/categories';
 
 const amountFormatter = new Intl.NumberFormat('de-DE', {
     style: 'currency',
@@ -11,6 +12,11 @@ const EMPTY_EDIT_FORM = {
     category: '',
     description: '',
     amount: '',
+};
+
+const EMPTY_FILTERS = {
+    account_id: '',
+    category: '',
 };
 
 export default function TransactionsPage() {
@@ -25,10 +31,26 @@ export default function TransactionsPage() {
     const [sort, setSort] = useState({ column: 'transaction_date', direction: 'desc' });
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({ ...EMPTY_EDIT_FORM });
+    const [filters, setFilters] = useState({ ...EMPTY_FILTERS });
 
-    const getTransactions = useCallback(async () => {
+    // activeFilters is passed explicitly rather than read back from the
+    // filters state closure: that is what keeps a filter change's request
+    // in step with the control that triggered it, and keeps this
+    // callback's dependency list at navigate only, so a filter change can
+    // never re-trigger the mount effect's accounts load.
+    const getTransactions = useCallback(async (activeFilters) => {
         try {
-            const response = await fetch('http://localhost:8080/transactions', {
+            const params = new URLSearchParams();
+            if (activeFilters.account_id) {
+                params.set('account_id', activeFilters.account_id);
+            }
+            if (activeFilters.category) {
+                params.set('category', activeFilters.category);
+            }
+            const queryString = params.toString();
+            const url = `http://localhost:8080/transactions${queryString ? `?${queryString}` : ''}`;
+
+            const response = await fetch(url, {
                 method: 'GET',
                 credentials: 'include',
             });
@@ -76,13 +98,29 @@ export default function TransactionsPage() {
 
     useEffect(() => {
         const loadOnMount = async () => {
-            await getTransactions();
+            await getTransactions(EMPTY_FILTERS);
             await getAccounts();
             setLoading(false);
         };
 
         loadOnMount();
     }, [getTransactions, getAccounts]);
+
+    // Stores the next filters immediately and awaits the refetch with that
+    // same object, rather than reading filters back from state -- reading
+    // state back here could race a second change against a stale closure.
+    const applyFilter = async (field, value) => {
+        const nextFilters = { ...filters, [field]: value };
+        setFilters(nextFilters);
+        await getTransactions(nextFilters);
+    };
+
+    const handleClearFilters = async () => {
+        setFilters({ ...EMPTY_FILTERS });
+        await getTransactions({ ...EMPTY_FILTERS });
+    };
+
+    const isFilterActive = filters.account_id !== '' || filters.category !== '';
 
     const accountNamesById = accounts.reduce((map, account) => {
         map[account.id] = account.short_name;
@@ -191,7 +229,7 @@ export default function TransactionsPage() {
 
             setEditingId(null);
             setEditForm({ ...EMPTY_EDIT_FORM });
-            await getTransactions();
+            await getTransactions(filters);
         } catch (err) {
             console.error('Error updating transaction:', err);
             setError('Failed to update transaction');
@@ -219,7 +257,7 @@ export default function TransactionsPage() {
                 return;
             }
 
-            await getTransactions();
+            await getTransactions(filters);
         } catch (err) {
             console.error('Error deleting transaction:', err);
             setError('Failed to delete transaction');
@@ -241,41 +279,88 @@ export default function TransactionsPage() {
                 <p className="text-ui-btn-warn">{error}</p>
             )}
             <div className="flex flex-wrap items-end justify-between gap-4">
-                <div className="flex flex-col gap-1">
-                    <label htmlFor="search" className="text-ui-text font-bold text-sm">
-                        Search descriptions:
-                    </label>
-                    <div className="relative">
-                        <svg
-                            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
-                            viewBox="0 0 20 20"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            aria-hidden="true"
-                        >
-                            <circle cx="9" cy="9" r="6" />
-                            <line x1="17" y1="17" x2="13.5" y2="13.5" strokeLinecap="round" />
-                        </svg>
-                        <input
-                            className="w-72 max-w-full rounded-full bg-ui-bg text-ui-text py-2 pl-9 pr-9 focus:outline-none focus:ring-2"
-                            type="text"
-                            id="search"
-                            placeholder="e.g. groceries, rent…"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                        {search && (
-                            <button
-                                type="button"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-ui-text/50 hover:text-ui-text"
-                                aria-label="Clear search"
-                                onClick={() => setSearch('')}
+                <div className="flex flex-wrap items-end gap-4">
+                    <div className="flex flex-col gap-1">
+                        <label htmlFor="search" className="text-ui-text font-bold text-sm">
+                            Search descriptions:
+                        </label>
+                        <div className="relative">
+                            <svg
+                                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
                             >
-                                ×
-                            </button>
-                        )}
+                                <circle cx="9" cy="9" r="6" />
+                                <line x1="17" y1="17" x2="13.5" y2="13.5" strokeLinecap="round" />
+                            </svg>
+                            <input
+                                className="w-72 max-w-full rounded-full bg-ui-bg text-ui-text py-2 pl-9 pr-9 focus:outline-none focus:ring-2"
+                                type="text"
+                                id="search"
+                                placeholder="e.g. groceries, rent…"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                            {search && (
+                                <button
+                                    type="button"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ui-text/50 hover:text-ui-text"
+                                    aria-label="Clear search"
+                                    onClick={() => setSearch('')}
+                                >
+                                    ×
+                                </button>
+                            )}
+                        </div>
                     </div>
+                    <div className="flex flex-col gap-1">
+                        <label htmlFor="filter-account" className="text-ui-text font-bold text-sm">
+                            Account:
+                        </label>
+                        <select
+                            className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
+                            id="filter-account"
+                            value={filters.account_id}
+                            onChange={(e) => applyFilter('account_id', e.target.value)}
+                        >
+                            <option value="">All accounts</option>
+                            {accounts.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                    {account.short_name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                        <label htmlFor="filter-category" className="text-ui-text font-bold text-sm">
+                            Category:
+                        </label>
+                        <select
+                            className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
+                            id="filter-category"
+                            value={filters.category}
+                            onChange={(e) => applyFilter('category', e.target.value)}
+                        >
+                            <option value="">All categories</option>
+                            {CATEGORIES.map((category) => (
+                                <option key={category} value={category}>
+                                    {category}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    {isFilterActive && (
+                        <button
+                            type="button"
+                            className="text-ui-text/70 hover:text-ui-text underline text-sm pb-2"
+                            onClick={handleClearFilters}
+                        >
+                            Clear filters
+                        </button>
+                    )}
                 </div>
                 <NavLink
                     to="/transactions/new"
@@ -285,7 +370,9 @@ export default function TransactionsPage() {
                 </NavLink>
             </div>
             <div className="bg-ui-light-bg p-6 rounded-lg shadow-md text-ui-text">
-                {transactions.length === 0 ? (
+                {isFilterActive && transactions.length === 0 ? (
+                    <p className="text-ui-text/70">No transactions match your filters.</p>
+                ) : transactions.length === 0 ? (
                     <p className="text-ui-text/70">No transactions yet.</p>
                 ) : sortedTransactions.length === 0 ? (
                     <p className="text-ui-text/70">No transactions match your search.</p>

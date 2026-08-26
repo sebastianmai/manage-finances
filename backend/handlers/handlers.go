@@ -740,7 +740,45 @@ func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	transactions, err := h.services.GetTransactions(currentUser.ID)
+	var filter models.TransactionFilter
+
+	// An absent or empty account_id means unfiltered, not an error. When
+	// present, uuid.Parse is used purely as a syntax gate -- the same role
+	// it plays in DeleteAccount -- so a malformed value fails cleanly with
+	// 400 instead of surfacing as a driver error against the UUID-typed
+	// column. Whether the account actually belongs to this user is
+	// deliberately NOT checked here: the uuid = $1 ownership predicate in
+	// GetTransactionsByUser already narrows a foreign account_id to zero
+	// rows, and a distinct 403/404 here would hand back an ownership oracle
+	// that DeleteAccount, UpdateAccount and UpdateTransaction all avoid.
+	if accountID := r.URL.Query().Get("account_id"); accountID != "" {
+		if _, err := uuid.Parse(accountID); err != nil {
+			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Invalid account id",
+			})
+			return
+		}
+		filter.AccountID = accountID
+	}
+
+	// An absent or empty category means unfiltered, same as account_id.
+	// This is an input-bounding gate mirroring the category column's
+	// VARCHAR(50) width -- the same role the description cap in
+	// CreateTransaction and the comment cap in CreateAccount already play --
+	// not a whitelist: categories are a frontend-only list with no table or
+	// constraint behind them, so there is nothing to validate the value
+	// against beyond its length.
+	if category := r.URL.Query().Get("category"); category != "" {
+		if len(category) > 50 {
+			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "Category must be 50 characters or fewer",
+			})
+			return
+		}
+		filter.Category = category
+	}
+
+	transactions, err := h.services.GetTransactions(currentUser.ID, filter)
 	if err != nil {
 		fmt.Println("GET TRANSACTIONS ERROR:", err)
 		http.Error(w, "Failed to retrieve transactions", http.StatusInternalServerError)

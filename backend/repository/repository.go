@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -498,20 +499,61 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 	return nil
 }
 
+// buildTransactionFilterClause turns a models.TransactionFilter into a SQL
+// fragment plus its matching argument values, numbering placeholders from
+// nextIndex upward. It is a separate pure function, with no database
+// involved, specifically so the placeholder arithmetic -- the part that
+// silently corrupts a query when it drifts -- is unit-testable on its own.
+// Column names are fixed literals chosen by this code; only values ever
+// become arguments, which is what keeps a filter value from ever becoming
+// part of the query text.
+func buildTransactionFilterClause(filter models.TransactionFilter, nextIndex int) (string, []any) {
+	var clause strings.Builder
+	var args []any
+	index := nextIndex
+
+	if filter.AccountID != "" {
+		fmt.Fprintf(&clause, " AND account_id = $%d", index)
+		args = append(args, filter.AccountID)
+		index++
+	}
+
+	// Appended after the account branch, not before, so placeholder
+	// numbering stays deterministic and matches the argument order below --
+	// this is exactly the one-field-plus-one-branch extension the type
+	// comment on models.TransactionFilter promises.
+	if filter.Category != "" {
+		fmt.Fprintf(&clause, " AND category = $%d", index)
+		args = append(args, filter.Category)
+		index++
+	}
+
+	return clause.String(), args
+}
+
 // GetTransactionsByUser follows GetAccountsByUser's shape exactly.
 // description and category are nullable columns, hence the COALESCE -- the
 // same treatment GetAccountsByUser gives vollmacht. transaction_date is
 // narrowed to plain YYYY-MM-DD, which is both the wire format
 // Account.ActiveSince already uses and exactly what an <input type="date">
 // accepts. The transaction_id tiebreaker on ORDER BY makes the order total,
-// so the default view is stable across refetches.
-func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string) ([]models.Transaction, error) {
-	rows, err := r.db.Query(`
+// so the default view is stable across refetches. The uuid = $1 ownership
+// predicate stays first and unconditional -- filter's fragment, built with
+// nextIndex two since $1 is already taken, only narrows the owner's rows,
+// it never replaces the owner check.
+func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string, filter models.TransactionFilter) ([]models.Transaction, error) {
+	whereClause, filterArgs := buildTransactionFilterClause(filter, 2)
+
+	args := append([]any{userUUID}, filterArgs...)
+
+	query := `
 		SELECT transaction_id, account_id, amount::float8, COALESCE(description, ''),
 			COALESCE(category, ''), transaction_date::date::text, updated_at::text
-		FROM transactions WHERE uuid = $1
+		FROM transactions WHERE uuid = $1` + whereClause + `
 		ORDER BY transaction_date DESC, transaction_id DESC
-	`, userUUID)
+	`
+
+	rows, err := r.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving transactions: %w", err)
 	}

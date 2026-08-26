@@ -80,3 +80,15 @@ type Transaction struct {
 	// wire format plain and avoiding lib/pq's time.Time round-trip.
 	UpdatedAt string `json:"updated_at"`
 }
+
+// TransactionFilter narrows GetTransactionsByUser to a subset of the owning
+// user's transactions. Empty-means-absent is the contract for every field:
+// a zero-value TransactionFilter matches every row, exactly like calling
+// GetTransactionsByUser with no filter at all. A further optional field
+// (a date range, an amount range) is added by appending it here plus one
+// branch in buildTransactionFilterClause in repository.go -- that is the
+// whole extension.
+type TransactionFilter struct {
+	AccountID string
+	Category  string
+}

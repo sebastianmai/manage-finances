@@ -131,8 +131,8 @@ func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {
 	return s.repository.CreateBooking(legs)
 }
 
-func (s *ServiceLayerInstance) GetTransactions(userUUID string) ([]models.Transaction, error) {
-	return s.repository.GetTransactionsByUser(userUUID)
+func (s *ServiceLayerInstance) GetTransactions(userUUID string, filter models.TransactionFilter) ([]models.Transaction, error) {
+	return s.repository.GetTransactionsByUser(userUUID, filter)
 }
 
 func (s *ServiceLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (bool, error) {
