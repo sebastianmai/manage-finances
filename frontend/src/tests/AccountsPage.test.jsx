@@ -13,7 +13,7 @@ import {
 
 const account1 = {
   id: '11111111-1111-1111-1111-111111111111',
-  type: 'Girokonto',
+  type: 'Haupt',
   account_number: 'DE00 1234 5678',
   full_name: 'Girokonto Sparkasse',
   short_name: 'Giro',
@@ -21,11 +21,16 @@ const account1 = {
   active_since: '2020-01-15',
   owner_name: 'Ada Lovelace',
   vollmacht: 'Grace Hopper',
+  aktiv: true,
+  include_in_saldo: true,
+  zinssatz: 2.5,
+  basiszins: 1.75,
+  comment: 'Main account',
 };
 
 const account2 = {
   id: '22222222-2222-2222-2222-222222222222',
-  type: 'Tagesgeld',
+  type: 'Anlage',
   account_number: 'DE00 8765 4321',
   full_name: 'Tagesgeldkonto',
   short_name: 'Tagesgeld',
@@ -33,10 +38,17 @@ const account2 = {
   active_since: '2021-06-01',
   owner_name: 'Ada Lovelace',
   vollmacht: '',
+  aktiv: false,
+  include_in_saldo: false,
+  zinssatz: null,
+  basiszins: null,
+  comment: '',
 };
 
+// Type defaults to 'Haupt' (already a valid selection), so it is
+// deliberately absent here -- it's a <select>, not a text field, and the
+// default already satisfies the required-field check without any action.
 const validFormEntries = [
-  ['Type:', 'Depot'],
   ['Account nr / IBAN:', 'DE99 1111 2222'],
   ['Full name:', 'Depot Konto'],
   ['Short name:', 'Depot'],
@@ -135,7 +147,7 @@ describe('AccountsPage', () => {
     // header row + two data rows
     expect(rows).toHaveLength(3);
 
-    expect(screen.getByText('Girokonto')).toBeInTheDocument();
+    expect(screen.getByText('Haupt')).toBeInTheDocument();
     expect(screen.getByText('DE00 1234 5678')).toBeInTheDocument();
     expect(screen.getByText('Girokonto Sparkasse')).toBeInTheDocument();
     expect(screen.getByText('Giro')).toBeInTheDocument();
@@ -144,18 +156,118 @@ describe('AccountsPage', () => {
     expect(screen.getAllByText('Ada Lovelace').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('Grace Hopper')).toBeInTheDocument();
 
-    expect(screen.getAllByText('Tagesgeld').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Anlage')).toBeInTheDocument();
+    expect(screen.getByText('Tagesgeld')).toBeInTheDocument();
     expect(screen.getByText(normalizeSpace(EUR.format(500)))).toBeInTheDocument();
   });
 
-  test('empty vollmacht renders the em-dash placeholder, not a blank cell', async () => {
+  test('table shows the interest-rate and comment columns, de-DE percent rates', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2] }));
+
+    setup();
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    expect(screen.getByText('Zinssatz')).toBeInTheDocument();
+    expect(screen.getByText('Basiszins')).toBeInTheDocument();
+    expect(screen.getByText('Aktiv')).toBeInTheDocument();
+    expect(screen.getByText('In saldo')).toBeInTheDocument();
+    expect(screen.getByText('Comment')).toBeInTheDocument();
+
+    expect(screen.getByText('2,50 %')).toBeInTheDocument();
+    expect(screen.getByText('1,75 %')).toBeInTheDocument();
+    expect(screen.getByText('Main account')).toBeInTheDocument();
+  });
+
+  test('an account excluded from the saldo is still listed, with its checkboxes reflecting its actual state', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [account1, account2] }));
+
+    setup();
+
+    await screen.findByText('Tagesgeldkonto');
+
+    // account1: aktiv=true, include_in_saldo=true. account2: both false --
+    // excluded rows must stay fully visible and interactive, never hidden.
+    expect(screen.getByRole('checkbox', { name: `Aktiv: ${account1.short_name}` })).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: `Include in saldo: ${account1.short_name}` })
+    ).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: `Aktiv: ${account2.short_name}` })).not.toBeChecked();
+    expect(
+      screen.getByRole('checkbox', { name: `Include in saldo: ${account2.short_name}` })
+    ).not.toBeChecked();
+  });
+
+  test('toggling Include in saldo in the overview: PATCHes both current flags, keeps the toggle checked on success', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Account updated successfully' }));
+    const user = userEvent.setup();
+    setup();
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const toggle = screen.getByRole('checkbox', {
+      name: `Include in saldo: ${account1.short_name}`,
+    });
+    await user.click(toggle);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, options] = fetchMock.mock.calls[1];
+    expect(url).toBe(`http://localhost:8080/accounts/${account1.id}`);
+    expect(options.method).toBe('PATCH');
+    expect(options.credentials).toBe('include');
+    const body = JSON.parse(options.body);
+    // aktiv is sent alongside the changed flag, unchanged from its current value.
+    expect(body).toEqual({ aktiv: true, include_in_saldo: false });
+    expect(toggle).not.toBeChecked();
+  });
+
+  test('toggling Aktiv in the overview when the PATCH fails: reverts the checkbox and shows an error', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }))
+      .mockResolvedValueOnce(notOkResponse(500));
+    const user = userEvent.setup();
+    setup();
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const toggle = screen.getByRole('checkbox', { name: `Aktiv: ${account1.short_name}` });
+    await user.click(toggle);
+
+    expect(await screen.findByText('Failed to update account')).toBeInTheDocument();
+    expect(toggle).toBeChecked();
+  });
+
+  test('toggling a flag when the PATCH rejects: reverts the checkbox, shows an error, calls console.error', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }))
+      .mockRejectedValueOnce(new Error('network down'));
+    const user = userEvent.setup();
+    setup();
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const toggle = screen.getByRole('checkbox', { name: `Aktiv: ${account1.short_name}` });
+    await user.click(toggle);
+
+    expect(await screen.findByText('Failed to update account')).toBeInTheDocument();
+    expect(toggle).toBeChecked();
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  test('unset vollmacht, rates, and comment all render the em-dash placeholder, not a blank cell', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [account2] }));
 
     setup();
 
     await screen.findByText('Tagesgeldkonto');
 
-    expect(screen.getByText('—')).toBeInTheDocument();
+    // account2 has four unset fields: vollmacht, zinssatz, basiszins, comment.
+    expect(screen.getAllByText('—')).toHaveLength(4);
   });
 
   test('empty accounts array renders "No accounts yet." and zero table rows', async () => {
@@ -167,7 +279,7 @@ describe('AccountsPage', () => {
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
-  test('clicking Add account reveals eight labelled inputs', async () => {
+  test('clicking Add account reveals thirteen labelled controls', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
     const user = userEvent.setup();
     setup();
@@ -182,6 +294,26 @@ describe('AccountsPage', () => {
     expect(screen.getByLabelText('Active since:')).toBeInTheDocument();
     expect(screen.getByLabelText('Owner:')).toBeInTheDocument();
     expect(screen.getByLabelText('Vollmacht:')).toBeInTheDocument();
+    expect(screen.getByLabelText('Aktiv:')).toBeInTheDocument();
+    expect(screen.getByLabelText('Include in saldo:')).toBeInTheDocument();
+    expect(screen.getByLabelText('Zinssatz (%):')).toBeInTheDocument();
+    expect(screen.getByLabelText('Basiszins (%):')).toBeInTheDocument();
+    expect(screen.getByLabelText('Comment:')).toBeInTheDocument();
+  });
+
+  test('defaults on open: type Haupt, both flags checked, rates and comment empty', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }));
+
+    expect(screen.getByLabelText('Type:')).toHaveValue('Haupt');
+    expect(screen.getByLabelText('Aktiv:')).toBeChecked();
+    expect(screen.getByLabelText('Include in saldo:')).toBeChecked();
+    expect(screen.getByLabelText('Zinssatz (%):')).toHaveValue(null);
+    expect(screen.getByLabelText('Basiszins (%):')).toHaveValue(null);
+    expect(screen.getByLabelText('Comment:')).toHaveValue('');
   });
 
   test('submitting with a required field empty shows validation error, keeps form open, issues no POST', async () => {
@@ -193,7 +325,11 @@ describe('AccountsPage', () => {
     await fillValidForm(user, { skip: 'Owner:' });
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(await screen.findByText('All fields except Vollmacht are required')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Type, account number, full name, short name, saldo, active since and owner are required'
+      )
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Type:')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1); // mount GET only, no POST
   });
@@ -225,7 +361,7 @@ describe('AccountsPage', () => {
     await fillValidForm(user);
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    await screen.findByText('Girokonto');
+    await screen.findByText('Girokonto Sparkasse');
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const [url, options] = fetchMock.mock.calls[1];
@@ -235,7 +371,8 @@ describe('AccountsPage', () => {
     expect(options.headers).toEqual(expect.objectContaining({ 'Content-Type': 'application/json' }));
 
     const body = JSON.parse(options.body);
-    expect(body.type).toBe('Depot');
+    // Type was left at its default -- the field is a <select>, not typed into.
+    expect(body.type).toBe('Haupt');
     expect(body.account_number).toBe('DE99 1111 2222');
     expect(body.full_name).toBe('Depot Konto');
     expect(body.short_name).toBe('Depot');
@@ -246,6 +383,83 @@ describe('AccountsPage', () => {
 
     expect(screen.queryByLabelText('Type:')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add account' })).toBeInTheDocument();
+  });
+
+  test('create with defaults untouched: posts real booleans, null rates, empty comment', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }));
+    await fillValidForm(user);
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const [, options] = fetchMock.mock.calls[1];
+    const body = JSON.parse(options.body);
+
+    expect(body.aktiv).toBe(true);
+    expect(typeof body.aktiv).toBe('boolean');
+    expect(body.include_in_saldo).toBe(true);
+    expect(typeof body.include_in_saldo).toBe('boolean');
+    expect(body.zinssatz).toBeNull();
+    expect(body.basiszins).toBeNull();
+    expect(body.comment).toBe('');
+  });
+
+  test('unchecking Include in saldo only: aktiv stays true, include_in_saldo becomes false', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }));
+    await fillValidForm(user);
+    await user.click(screen.getByLabelText('Include in saldo:'));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const [, options] = fetchMock.mock.calls[1];
+    const body = JSON.parse(options.body);
+
+    expect(body.aktiv).toBe(true);
+    expect(body.include_in_saldo).toBe(false);
+  });
+
+  test('selecting Anlage and filling the optional fields: posts type Anlage, numeric rates, and the comment', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Account created successfully' }))
+      .mockResolvedValueOnce(jsonResponse({ accounts: [account1] }));
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Add account' }));
+    await fillValidForm(user);
+    await user.selectOptions(screen.getByLabelText('Type:'), 'Anlage');
+    await user.type(screen.getByLabelText('Zinssatz (%):'), '2.5');
+    await user.type(screen.getByLabelText('Basiszins (%):'), '1.75');
+    await user.type(screen.getByLabelText('Comment:'), 'A note');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByText('Girokonto Sparkasse');
+
+    const [, options] = fetchMock.mock.calls[1];
+    const body = JSON.parse(options.body);
+
+    expect(body.type).toBe('Anlage');
+    expect(body.zinssatz).toBe(2.5);
+    expect(typeof body.zinssatz).toBe('number');
+    expect(body.basiszins).toBe(1.75);
+    expect(typeof body.basiszins).toBe('number');
+    expect(body.comment).toBe('A note');
   });
 
   test('create failure (not-ok): shows create error, keeps form open', async () => {

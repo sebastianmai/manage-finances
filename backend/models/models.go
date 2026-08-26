@@ -13,7 +13,13 @@ type Account struct {
 	// UUID is the owning user and is derived exclusively from the session
 	// cookie, never the request body: json:"-" keeps it unreachable to the
 	// decoder on the way in and out of the response on the way out.
-	UUID          string  `json:"-"`
+	UUID string `json:"-"`
+	// Type is a fixed two-value classification, Haupt or Anlage, enforced
+	// by the column's CHECK constraint with the handler mirroring it at
+	// the API boundary. It used to be a separate free-text field alongside
+	// a Category field with this same constraint -- they turned out to be
+	// the same concept, so Category was dropped and its constraint moved
+	// here.
 	Type          string  `json:"type"`
 	AccountNumber string  `json:"account_number"`
 	FullName      string  `json:"full_name"`
@@ -25,6 +31,22 @@ type Account struct {
 	ActiveSince string `json:"active_since"`
 	OwnerName   string `json:"owner_name"`
 	Vollmacht   string `json:"vollmacht"`
+	Aktiv       bool   `json:"aktiv"`
+	// IncludeInSaldo gates the account out of the aggregate GET /balance
+	// total when false. It does not gate anything else -- the account is
+	// still returned in full by GET /accounts and still shown in the
+	// accounts table.
+	IncludeInSaldo bool `json:"include_in_saldo"`
+	// Zinssatz and Basiszins are pointers because NULL and 0 are genuinely
+	// different for a numeric rate -- an account with no rate at all must
+	// not report an explicit 0%. Comment follows the Vollmacht precedent
+	// already in this struct instead (NULLIF on the way in, COALESCE on the
+	// way out): for free text there is no meaningful difference between NULL
+	// and the empty string, so a pointer here would buy nothing and would
+	// fork this struct's nullability style for one field.
+	Zinssatz  *float64 `json:"zinssatz"`
+	Basiszins *float64 `json:"basiszins"`
+	Comment   string   `json:"comment"`
 }
 
 // Session is a bearer credential: whoever holds SessionID is logged in as

@@ -87,6 +87,9 @@ func (s *ServiceLayerInstance) Logout(sessionID string) error {
 // domain: the true sum is always a two-decimal quantity, so the float64
 // result is always within ~1e-13 of it, multiplying by 100 lands within
 // ~1e-11 of an integer, and math.Round recovers that integer exactly.
+// Accounts flagged out of the saldo are skipped from this total only --
+// they are still returned in full by GetAccountsByUser/GET /accounts and
+// still shown in the accounts table.
 func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
 	accounts, err := s.repository.GetAccountsByUser(userUUID)
 	if err != nil {
@@ -95,6 +98,9 @@ func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
 
 	var sum float64
 	for _, account := range accounts {
+		if !account.IncludeInSaldo {
+			continue
+		}
 		sum += account.Saldo
 	}
 
@@ -111,6 +117,10 @@ func (s *ServiceLayerInstance) CreateAccount(account models.Account) error {
 
 func (s *ServiceLayerInstance) DeleteAccount(accountID string, userUUID string) (bool, error) {
 	return s.repository.DeleteAccount(accountID, userUUID)
+}
+
+func (s *ServiceLayerInstance) UpdateAccountFlags(accountID, userUUID string, aktiv, includeInSaldo bool) (bool, error) {
+	return s.repository.UpdateAccountFlags(accountID, userUUID, aktiv, includeInSaldo)
 }
 
 func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {

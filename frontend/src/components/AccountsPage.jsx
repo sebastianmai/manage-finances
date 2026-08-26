@@ -6,8 +6,23 @@ const saldoFormatter = new Intl.NumberFormat('de-DE', {
     currency: 'EUR',
 });
 
+// Intl's percent style multiplies its input by 100 (2.5 would render as
+// 250%), but the stored value is already a percentage -- so this formats a
+// plain de-DE number and the '%' sign is appended manually below.
+const rateFormatter = new Intl.NumberFormat('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+function formatRate(value) {
+    if (value === null || value === undefined) {
+        return '—';
+    }
+    return `${rateFormatter.format(value)} %`;
+}
+
 const EMPTY_FORM = {
-    type: '',
+    type: 'Haupt',
     account_number: '',
     full_name: '',
     short_name: '',
@@ -15,6 +30,11 @@ const EMPTY_FORM = {
     active_since: '',
     owner_name: '',
     vollmacht: '',
+    aktiv: true,
+    include_in_saldo: true,
+    zinssatz: '',
+    basiszins: '',
+    comment: '',
 };
 
 export default function AccountsPage() {
@@ -64,9 +84,10 @@ export default function AccountsPage() {
     }, [getAccounts]);
 
     const handleChange = (e) => {
+        const { id, value, type, checked } = e.target;
         setForm({
             ...form,
-            [e.target.id]: e.target.value,
+            [id]: type === 'checkbox' ? checked : value,
         });
     };
 
@@ -79,6 +100,56 @@ export default function AccountsPage() {
         setForm({ ...EMPTY_FORM });
         setError('');
         setAdding(false);
+    };
+
+    // Toggling a checkbox in the table optimistically flips local state
+    // immediately (so the UI feels responsive), then PATCHes both current
+    // flag values together -- this is never a partial patch, matching the
+    // handler's plain-bool (not pointer) request shape. A failed PATCH
+    // reverts the optimistic flip and shows an error rather than leaving
+    // the displayed state silently out of sync with the server.
+    const handleFlagToggle = async (account, field, value) => {
+        setError('');
+        const nextFlags = {
+            aktiv: field === 'aktiv' ? value : account.aktiv,
+            include_in_saldo: field === 'include_in_saldo' ? value : account.include_in_saldo,
+        };
+
+        setAccounts((prev) =>
+            prev.map((a) => (a.id === account.id ? { ...a, ...nextFlags } : a))
+        );
+
+        try {
+            const response = await fetch(`http://localhost:8080/accounts/${account.id}`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(nextFlags),
+            });
+
+            if (!response.ok) {
+                setAccounts((prev) =>
+                    prev.map((a) =>
+                        a.id === account.id
+                            ? { ...a, aktiv: account.aktiv, include_in_saldo: account.include_in_saldo }
+                            : a
+                    )
+                );
+                setError('Failed to update account');
+            }
+        } catch (err) {
+            console.error('Error updating account:', err);
+            setAccounts((prev) =>
+                prev.map((a) =>
+                    a.id === account.id
+                        ? { ...a, aktiv: account.aktiv, include_in_saldo: account.include_in_saldo }
+                        : a
+                )
+            );
+            setError('Failed to update account');
+        }
     };
 
     const handleDelete = async (account) => {
@@ -122,7 +193,7 @@ export default function AccountsPage() {
             !form.active_since ||
             !form.owner_name
         ) {
-            setError('All fields except Vollmacht are required');
+            setError('Type, account number, full name, short name, saldo, active since and owner are required');
             return;
         }
 
@@ -133,7 +204,15 @@ export default function AccountsPage() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ ...form, saldo: Number(form.saldo) }),
+                body: JSON.stringify({
+                    ...form,
+                    saldo: Number(form.saldo),
+                    // Number('') is 0, and a stored 0 would claim a real 0%
+                    // rate on an account that simply has none -- an empty
+                    // rate input must serialize as null, never as a number.
+                    zinssatz: form.zinssatz === '' ? null : Number(form.zinssatz),
+                    basiszins: form.basiszins === '' ? null : Number(form.basiszins),
+                }),
             });
 
             if (!response.ok) {
@@ -177,9 +256,14 @@ export default function AccountsPage() {
                                     <th className="px-3 py-2 font-bold text-left">Full name</th>
                                     <th className="px-3 py-2 font-bold text-left">Short name</th>
                                     <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Saldo</th>
+                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Zinssatz</th>
+                                    <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Basiszins</th>
                                     <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Active since</th>
                                     <th className="px-3 py-2 font-bold text-left">Owner</th>
                                     <th className="px-3 py-2 font-bold text-left">Vollmacht</th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">Aktiv</th>
+                                    <th className="px-3 py-2 font-bold text-left whitespace-nowrap">In saldo</th>
+                                    <th className="px-3 py-2 font-bold text-left">Comment</th>
                                     <th className="px-3 py-2 font-bold text-right whitespace-nowrap">Actions</th>
                                 </tr>
                             </thead>
@@ -191,9 +275,32 @@ export default function AccountsPage() {
                                         <td className="px-3 py-2">{account.full_name}</td>
                                         <td className="px-3 py-2">{account.short_name}</td>
                                         <td className={`px-3 py-2 tabular-nums text-right whitespace-nowrap ${account.saldo > 0 ? 'text-green-600' : account.saldo < 0 ? 'text-red-500' : ''}`}>{saldoFormatter.format(account.saldo)}</td>
+                                        <td className="px-3 py-2 tabular-nums text-right whitespace-nowrap">{formatRate(account.zinssatz)}</td>
+                                        <td className="px-3 py-2 tabular-nums text-right whitespace-nowrap">{formatRate(account.basiszins)}</td>
                                         <td className="px-3 py-2 whitespace-nowrap">{account.active_since}</td>
                                         <td className="px-3 py-2">{account.owner_name}</td>
                                         <td className="px-3 py-2">{account.vollmacht || '—'}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <input
+                                                className="h-4 w-4 accent-ui-btn"
+                                                type="checkbox"
+                                                aria-label={`Aktiv: ${account.short_name}`}
+                                                checked={account.aktiv}
+                                                onChange={(e) => handleFlagToggle(account, 'aktiv', e.target.checked)}
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2 whitespace-nowrap">
+                                            <input
+                                                className="h-4 w-4 accent-ui-btn"
+                                                type="checkbox"
+                                                aria-label={`Include in saldo: ${account.short_name}`}
+                                                checked={account.include_in_saldo}
+                                                onChange={(e) =>
+                                                    handleFlagToggle(account, 'include_in_saldo', e.target.checked)
+                                                }
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2 max-w-[16rem] truncate" title={account.comment}>{account.comment || '—'}</td>
                                         <td className="px-3 py-2 text-right whitespace-nowrap">
                                             <button
                                                 type="button"
@@ -216,13 +323,15 @@ export default function AccountsPage() {
                             <label htmlFor="type" className="text-ui-text font-bold">
                                 Type:
                             </label>
-                            <input
+                            <select
                                 className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
-                                type="text"
                                 id="type"
                                 value={form.type}
                                 onChange={handleChange}
-                            />
+                            >
+                                <option value="Haupt">Haupt</option>
+                                <option value="Anlage">Anlage</option>
+                            </select>
                         </div>
                         <div className="grid grid-cols-[140px_1fr] items-center gap-2">
                             <label htmlFor="account_number" className="text-ui-text font-bold">
@@ -306,6 +415,69 @@ export default function AccountsPage() {
                                 type="text"
                                 id="vollmacht"
                                 value={form.vollmacht}
+                                onChange={handleChange}
+                            />
+                        </div>
+                        <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <label htmlFor="aktiv" className="text-ui-text font-bold">
+                                Aktiv:
+                            </label>
+                            <input
+                                className="h-4 w-4 accent-ui-btn justify-self-start"
+                                type="checkbox"
+                                id="aktiv"
+                                checked={form.aktiv}
+                                onChange={handleChange}
+                            />
+                        </div>
+                        <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <label htmlFor="include_in_saldo" className="text-ui-text font-bold">
+                                Include in saldo:
+                            </label>
+                            <input
+                                className="h-4 w-4 accent-ui-btn justify-self-start"
+                                type="checkbox"
+                                id="include_in_saldo"
+                                checked={form.include_in_saldo}
+                                onChange={handleChange}
+                            />
+                        </div>
+                        <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <label htmlFor="zinssatz" className="text-ui-text font-bold">
+                                Zinssatz (%):
+                            </label>
+                            <input
+                                className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
+                                type="number"
+                                step="0.01"
+                                id="zinssatz"
+                                value={form.zinssatz}
+                                onChange={handleChange}
+                            />
+                        </div>
+                        <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <label htmlFor="basiszins" className="text-ui-text font-bold">
+                                Basiszins (%):
+                            </label>
+                            <input
+                                className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
+                                type="number"
+                                step="0.01"
+                                id="basiszins"
+                                value={form.basiszins}
+                                onChange={handleChange}
+                            />
+                        </div>
+                        <div className="grid grid-cols-[140px_1fr] items-center gap-2">
+                            <label htmlFor="comment" className="text-ui-text font-bold">
+                                Comment:
+                            </label>
+                            <input
+                                className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
+                                type="text"
+                                id="comment"
+                                maxLength={500}
+                                value={form.comment}
                                 onChange={handleChange}
                             />
                         </div>

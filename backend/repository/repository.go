@@ -245,7 +245,9 @@ func (r *RepositoryLayerInstance) CreateSession(sessionID, userID string, create
 func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.Account, error) {
 	rows, err := r.db.Query(`
 		SELECT account_id, type, account_number, full_name, short_name,
-			saldo::float8, active_since::text, owner_name, COALESCE(vollmacht, '')
+			saldo::float8, active_since::text, owner_name, COALESCE(vollmacht, ''),
+			aktiv, include_in_saldo, zinssatz::float8, basiszins::float8,
+			COALESCE(comment, '')
 		FROM accounts WHERE uuid = $1 ORDER BY active_since ASC, full_name ASC
 	`, userUUID)
 	if err != nil {
@@ -256,6 +258,13 @@ func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.A
 	accounts := []models.Account{}
 	for rows.Next() {
 		var account models.Account
+		// zinssatz/basiszins are declared here, inside the loop body, rather
+		// than hoisted above it: the code below takes their address, and a
+		// single declaration hoisted above the loop would leave every
+		// returned account's Zinssatz pointer aliasing the same variable --
+		// every row would report the last row's rate. Go gives the loop body
+		// a fresh variable per iteration, which is what makes this safe.
+		var zinssatz, basiszins sql.NullFloat64
 		if err := rows.Scan(
 			&account.ID,
 			&account.Type,
@@ -266,8 +275,19 @@ func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.A
 			&account.ActiveSince,
 			&account.OwnerName,
 			&account.Vollmacht,
+			&account.Aktiv,
+			&account.IncludeInSaldo,
+			&zinssatz,
+			&basiszins,
+			&account.Comment,
 		); err != nil {
 			return nil, fmt.Errorf("scanning account: %w", err)
+		}
+		if zinssatz.Valid {
+			account.Zinssatz = &zinssatz.Float64
+		}
+		if basiszins.Valid {
+			account.Basiszins = &basiszins.Float64
 		}
 		accounts = append(accounts, account)
 	}
@@ -285,8 +305,15 @@ func (r *RepositoryLayerInstance) GetAccountsByUser(userUUID string) ([]models.A
 // positional shape.
 func (r *RepositoryLayerInstance) CreateAccount(account models.Account) error {
 	_, err := r.db.Exec(`
-		INSERT INTO accounts (account_id, uuid, type, account_number, full_name, short_name, saldo, active_since, owner_name, vollmacht)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''))
+		INSERT INTO accounts (
+			account_id, uuid, type, account_number, full_name, short_name,
+			saldo, active_since, owner_name, vollmacht, aktiv,
+			include_in_saldo, zinssatz, basiszins, comment
+		)
+		VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, NULLIF($10, ''), $11,
+			$12, $13, $14, NULLIF($15, '')
+		)
 	`,
 		account.ID,
 		account.UUID,
@@ -298,6 +325,16 @@ func (r *RepositoryLayerInstance) CreateAccount(account models.Account) error {
 		account.ActiveSince,
 		account.OwnerName,
 		account.Vollmacht,
+		account.Aktiv,
+		account.IncludeInSaldo,
+		// Zinssatz and Basiszins are passed as pointers directly, with no nil
+		// check and no sql.NullFloat64 on the write side: database/sql's
+		// default parameter converter dereferences a non-nil pointer and
+		// maps a nil pointer to NULL, so a nil *float64 already produces
+		// exactly the NULL this needs.
+		account.Zinssatz,
+		account.Basiszins,
+		account.Comment,
 	)
 
 	if err != nil {
@@ -322,6 +359,26 @@ func (r *RepositoryLayerInstance) DeleteAccount(accountID string, userUUID strin
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return false, fmt.Errorf("deleting account: %w", err)
+	}
+
+	return rowsAffected > 0, nil
+}
+
+// UpdateAccountFlags enforces ownership in the WHERE clause, matching
+// DeleteAccount's pattern: an update that matches nothing is reported
+// identically whether the row is absent or owned by someone else.
+func (r *RepositoryLayerInstance) UpdateAccountFlags(accountID, userUUID string, aktiv, includeInSaldo bool) (bool, error) {
+	result, err := r.db.Exec(`
+		UPDATE accounts SET aktiv = $1, include_in_saldo = $2 WHERE account_id = $3 AND uuid = $4
+	`, aktiv, includeInSaldo, accountID, userUUID)
+
+	if err != nil {
+		return false, fmt.Errorf("updating account flags: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("updating account flags: %w", err)
 	}
 
 	return rowsAffected > 0, nil

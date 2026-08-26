@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"sync"
@@ -266,8 +267,31 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// models.Account carries Aktiv/IncludeInSaldo as plain bool, so a single
+	// decode cannot distinguish an omitted flag from an explicit false -- a
+	// client that predates these fields would silently create a
+	// deactivated account excluded from its own balance. The body is
+	// buffered and unmarshalled twice: once into req, once into a small
+	// pointer-typed struct that CAN represent "absent". r.Body is a
+	// one-shot stream, so it must be read into bytes first rather than
+	// decoded twice directly.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
 	var req models.Account
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var flags struct {
+		Aktiv          *bool `json:"aktiv"`
+		IncludeInSaldo *bool `json:"include_in_saldo"`
+	}
+	if err := json.Unmarshal(body, &flags); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -282,9 +306,43 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 	// primary key.
 	req.ID = util.GenerateUUID()
 
+	// These defaults deliberately match the column defaults, so the API and
+	// the database agree on what an omitted flag means.
+	if flags.Aktiv == nil {
+		req.Aktiv = true
+	} else {
+		req.Aktiv = *flags.Aktiv
+	}
+	if flags.IncludeInSaldo == nil {
+		req.IncludeInSaldo = true
+	} else {
+		req.IncludeInSaldo = *flags.IncludeInSaldo
+	}
+
 	if req.Type == "" || req.AccountNumber == "" || req.FullName == "" || req.ShortName == "" || req.ActiveSince == "" || req.OwnerName == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "All fields except Vollmacht are required",
+			"error": "Type, account number, full name, short name, saldo, active since and owner are required",
+		})
+		return
+	}
+
+	// Mirrors the CHECK constraint at the API boundary so a foreseeable bad
+	// value is a clean 400 instead of a 500 leaking out of the driver. This
+	// does not replace the constraint -- the constraint is what protects
+	// the table from clients that never touch this handler.
+	if req.Type != "Haupt" && req.Type != "Anlage" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Type must be Haupt or Anlage",
+		})
+		return
+	}
+
+	// Follows the cap already applied to transaction descriptions in
+	// CreateTransaction for the same reason -- the column is VARCHAR(500)
+	// and a too-long value would otherwise surface as a 500.
+	if len(req.Comment) > 500 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Comment must be 500 characters or fewer",
 		})
 		return
 	}
@@ -347,6 +405,66 @@ func (h *HandlerLayerInstance) DeleteAccount(w http.ResponseWriter, r *http.Requ
 
 	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Account deleted successfully",
+	})
+}
+
+func (h *HandlerLayerInstance) UpdateAccountFlags(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	if _, err := uuid.Parse(vars["id"]); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid account id",
+		})
+		return
+	}
+
+	// Both flags are plain bool, not pointers: the overview toggles always
+	// send both current values together, this is never a partial patch, so
+	// there is no absent-vs-false ambiguity to resolve here the way
+	// CreateAccount's buffered double-unmarshal has to.
+	var req struct {
+		Aktiv          bool `json:"aktiv"`
+		IncludeInSaldo bool `json:"include_in_saldo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	updated, err := h.services.UpdateAccountFlags(vars["id"], currentUser.ID, req.Aktiv, req.IncludeInSaldo)
+	if err != nil {
+		fmt.Println("UPDATE ACCOUNT FLAGS ERROR:", err)
+		http.Error(w, "Failed to update account", http.StatusInternalServerError)
+		return
+	}
+
+	// Same status and message whether the id belongs to another user or
+	// does not exist at all -- one shared path, no ownership oracle,
+	// matching DeleteAccount.
+	if !updated {
+		util.WriteJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Account not found",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Account updated successfully",
 	})
 }
 

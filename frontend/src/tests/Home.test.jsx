@@ -135,6 +135,20 @@ describe('Home', () => {
     expect(screen.queryByRole('link', { name: 'New booking' })).not.toBeInTheDocument();
   });
 
+  test('renders the server balance verbatim and never fetches /accounts to re-derive it', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+      .mockResolvedValueOnce(jsonResponse({ balance: 100 }));
+
+    renderWithRouter(<Home />);
+
+    expect(await screen.findByText(normalizeSpace(EUR.format(100)))).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('/accounts'),
+      expect.anything()
+    );
+  });
+
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 
