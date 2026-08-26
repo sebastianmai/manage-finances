@@ -9,6 +9,7 @@ CREATE TABLE transactions (
     category VARCHAR(50),
     transaction_date TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_transactions_user
         FOREIGN KEY (uuid)

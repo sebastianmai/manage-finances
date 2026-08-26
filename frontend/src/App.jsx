@@ -6,6 +6,7 @@ import Home from './components/Home'
 import Login from './components/Login'
 import ProfilePage from './components/ProfilePage'
 import AccountsPage from './components/AccountsPage'
+import TransactionsPage from './components/TransactionsPage'
 import NewTransactionPage from './components/NewTransactionPage'
 
 import {useState, useEffect} from 'react'
@@ -29,6 +30,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/accounts" element={<AccountsPage />} />
+            <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/new" element={<NewTransactionPage />} />
             <Route path="/" element={<Home />} />
           </Routes>

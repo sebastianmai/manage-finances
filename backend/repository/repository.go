@@ -4,6 +4,7 @@ import (
 	"backend/models"
 	"backend/util"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -451,6 +452,215 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 	}
 
 	return nil
+}
+
+// GetTransactionsByUser follows GetAccountsByUser's shape exactly.
+// description and category are nullable columns, hence the COALESCE -- the
+// same treatment GetAccountsByUser gives vollmacht. transaction_date is
+// narrowed to plain YYYY-MM-DD, which is both the wire format
+// Account.ActiveSince already uses and exactly what an <input type="date">
+// accepts. The transaction_id tiebreaker on ORDER BY makes the order total,
+// so the default view is stable across refetches.
+func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string) ([]models.Transaction, error) {
+	rows, err := r.db.Query(`
+		SELECT transaction_id, account_id, amount::float8, COALESCE(description, ''),
+			COALESCE(category, ''), transaction_date::date::text, updated_at::text
+		FROM transactions WHERE uuid = $1
+		ORDER BY transaction_date DESC, transaction_id DESC
+	`, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving transactions: %w", err)
+	}
+	defer rows.Close()
+
+	transactions := []models.Transaction{}
+	for rows.Next() {
+		var transaction models.Transaction
+		if err := rows.Scan(
+			&transaction.ID,
+			&transaction.AccountID,
+			&transaction.Amount,
+			&transaction.Description,
+			&transaction.Category,
+			&transaction.TransactionDate,
+			&transaction.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning transaction: %w", err)
+		}
+		transactions = append(transactions, transaction)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating transactions: %w", err)
+	}
+
+	return transactions, nil
+}
+
+// UpdateTransaction takes a models.Transaction rather than positional
+// parameters for the reason already documented on CreateAccount:
+// description, category and transactionDate are three adjacent same-typed
+// strings and a silent swap between them is worse than the extra type.
+// txn.ID carries which row; the editable fields carry the new values. It is
+// atomic and follows CreateBooking's idiom precisely -- err is a named
+// return, a deferred rollback guard sits right after Begin, and err is
+// never shadowed with := anywhere in the body.
+func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (updated bool, err error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("beginning update transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var accountID string
+	var oldAmount float64
+	// FOR UPDATE holds the row for the rest of the transaction so a
+	// concurrent edit cannot read the same oldAmount and apply a second
+	// delta against it. Ownership lives in this WHERE clause, matching
+	// DeleteAccount.
+	err = tx.QueryRow(`
+		SELECT account_id, amount::float8 FROM transactions
+		WHERE transaction_id = $1 AND uuid = $2 FOR UPDATE
+	`, txn.ID, userUUID).Scan(&accountID, &oldAmount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The row is absent or owned by someone else -- report both
+			// identically. The deferred guard above cannot cover this path:
+			// returning nil for the named err before the defer runs would
+			// make the guard see a nil err and skip the rollback, leaking
+			// an open transaction out of the pool. Roll back explicitly.
+			_ = tx.Rollback()
+			return false, nil
+		}
+		err = fmt.Errorf("locking transaction row: %w", err)
+		return false, err
+	}
+
+	// account_id is deliberately absent from the SET list -- a transaction
+	// cannot be moved between accounts, and leaving the column out of the
+	// statement is what makes that true no matter what a client sends.
+	// updated_at is stamped here in the statement rather than by a database
+	// trigger, because this codebase does every write explicitly in Go/SQL
+	// and has no triggers anywhere.
+	if _, err = tx.Exec(`
+		UPDATE transactions
+		SET description = $1, category = $2, transaction_date = $3::date, amount = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE transaction_id = $5 AND uuid = $6
+	`, txn.Description, txn.Category, txn.TransactionDate, txn.Amount, txn.ID, userUUID); err != nil {
+		err = fmt.Errorf("updating transaction: %w", err)
+		return false, err
+	}
+
+	// Applying the delta, not the new amount, is the whole point of
+	// reading oldAmount first.
+	delta := txn.Amount - oldAmount
+
+	var result sql.Result
+	result, err = tx.Exec(`
+		UPDATE accounts SET saldo = saldo + $1 WHERE account_id = $2 AND uuid = $3
+	`, delta, accountID, userUUID)
+	if err != nil {
+		err = fmt.Errorf("updating account saldo: %w", err)
+		return false, err
+	}
+
+	var rowsAffected int64
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("checking saldo update result: %w", err)
+		return false, err
+	}
+
+	// The uuid condition in the WHERE clause above is the last line of
+	// defence at the statement that moves money -- a zero-row result must
+	// become a rolled-back error rather than a silent no-op, matching
+	// CreateBooking's reasoning.
+	if rowsAffected != 1 {
+		err = fmt.Errorf("updating account saldo: expected 1 row affected, got %d", rowsAffected)
+		return false, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		err = fmt.Errorf("committing update transaction: %w", err)
+		return false, err
+	}
+
+	return true, nil
+}
+
+// DeleteTransaction is the same shape as UpdateTransaction: the same named-
+// return guard, the same explicit-rollback-on-not-found branch, and the
+// same RowsAffected != 1 check, reversing exactly the deleted row's
+// contribution to the linked account's saldo.
+func (r *RepositoryLayerInstance) DeleteTransaction(transactionID int64, userUUID string) (deleted bool, err error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("beginning delete transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var accountID string
+	var amount float64
+	err = tx.QueryRow(`
+		SELECT account_id, amount::float8 FROM transactions
+		WHERE transaction_id = $1 AND uuid = $2 FOR UPDATE
+	`, transactionID, userUUID).Scan(&accountID, &amount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Same not-found handling as UpdateTransaction: explicit
+			// rollback because the deferred guard cannot see a nil err on
+			// this path.
+			_ = tx.Rollback()
+			return false, nil
+		}
+		err = fmt.Errorf("locking transaction row: %w", err)
+		return false, err
+	}
+
+	if _, err = tx.Exec(`
+		DELETE FROM transactions WHERE transaction_id = $1 AND uuid = $2
+	`, transactionID, userUUID); err != nil {
+		err = fmt.Errorf("deleting transaction: %w", err)
+		return false, err
+	}
+
+	var result sql.Result
+	result, err = tx.Exec(`
+		UPDATE accounts SET saldo = saldo - $1 WHERE account_id = $2 AND uuid = $3
+	`, amount, accountID, userUUID)
+	if err != nil {
+		err = fmt.Errorf("updating account saldo: %w", err)
+		return false, err
+	}
+
+	var rowsAffected int64
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		err = fmt.Errorf("checking saldo update result: %w", err)
+		return false, err
+	}
+
+	if rowsAffected != 1 {
+		err = fmt.Errorf("updating account saldo: expected 1 row affected, got %d", rowsAffected)
+		return false, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		err = fmt.Errorf("committing delete transaction: %w", err)
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (r *RepositoryLayerInstance) GetAllSessions() ([]models.Session, error) {

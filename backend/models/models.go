@@ -75,4 +75,8 @@ type Transaction struct {
 	// transfer. There is no separate boolean flag on the wire -- this
 	// single field is what makes a request a transfer.
 	TransferToAccountID string `json:"transfer_to_account_id"`
+	// UpdatedAt is a string, not time.Time, for the same reason
+	// TransactionDate is: the SELECT casts the column to text, keeping the
+	// wire format plain and avoiding lib/pq's time.Time round-trip.
+	UpdatedAt string `json:"updated_at"`
 }

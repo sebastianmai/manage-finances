@@ -168,6 +168,49 @@ describe('Navbar', () => {
     expect(await screen.findByRole('link', { name: 'Accounts' })).toBeInTheDocument();
   });
 
+  test('logged out (/me not-ok): no Transactions link', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.queryByRole('link', { name: 'Transactions' })).not.toBeInTheDocument();
+  });
+
+  test('while /me is pending: no Transactions link', async () => {
+    const { promise } = deferred();
+    fetchMock.mockReturnValueOnce(promise);
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(screen.queryByRole('link', { name: 'Transactions' })).not.toBeInTheDocument();
+
+    fetchMock.mockClear();
+  });
+
+  test('logged in (/me ok): Transactions link exists with href="/transactions"', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    const link = await screen.findByRole('link', { name: 'Transactions' });
+    expect(link).toHaveAttribute('href', '/transactions');
+  });
+
+  test('authchange after a logged-out mount makes the Transactions link appear', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.queryByRole('link', { name: 'Transactions' })).not.toBeInTheDocument();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+    await dispatchAuthChange();
+
+    expect(await screen.findByRole('link', { name: 'Transactions' })).toBeInTheDocument();
+  });
+
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 

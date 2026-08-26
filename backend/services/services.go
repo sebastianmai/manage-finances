@@ -127,6 +127,18 @@ func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {
 	return s.repository.CreateBooking(legs)
 }
 
+func (s *ServiceLayerInstance) GetTransactions(userUUID string) ([]models.Transaction, error) {
+	return s.repository.GetTransactionsByUser(userUUID)
+}
+
+func (s *ServiceLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (bool, error) {
+	return s.repository.UpdateTransaction(userUUID, txn)
+}
+
+func (s *ServiceLayerInstance) DeleteTransaction(transactionID int64, userUUID string) (bool, error) {
+	return s.repository.DeleteTransaction(transactionID, userUUID)
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {

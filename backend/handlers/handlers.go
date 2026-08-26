@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -605,6 +606,164 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 
 	util.WriteJSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "Transaction created successfully",
+	})
+}
+
+func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	transactions, err := h.services.GetTransactions(currentUser.ID)
+	if err != nil {
+		fmt.Println("GET TRANSACTIONS ERROR:", err)
+		http.Error(w, "Failed to retrieve transactions", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"transactions": transactions,
+	})
+}
+
+func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	// transaction_id is a BIGINT identity, not a UUID, so the id gate is
+	// ParseInt rather than uuid.Parse. This is a syntax validation gate,
+	// not a conversion convenience, the same role uuid.Parse plays in
+	// DeleteAccount.
+	transactionID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid transaction id",
+		})
+		return
+	}
+
+	var req models.Transaction
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	// AccountID may decode from the body but is inert -- the repository's
+	// UPDATE never names that column, so a transaction cannot be moved
+	// between accounts through this endpoint.
+
+	if req.TransactionDate == "" || req.Category == "" || req.Description == "" {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Date, category, and description are required",
+		})
+		return
+	}
+
+	if req.Amount == 0 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Amount cannot be zero",
+		})
+		return
+	}
+
+	if len(req.Description) > 180 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Description must be 180 characters or fewer",
+		})
+		return
+	}
+
+	req.ID = transactionID
+
+	updated, err := h.services.UpdateTransaction(currentUser.ID, req)
+	if err != nil {
+		fmt.Println("UPDATE TRANSACTION ERROR:", err)
+		http.Error(w, "Failed to update transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Same status and message whether the id belongs to another user or
+	// does not exist at all -- one shared path, no ownership oracle,
+	// matching DeleteAccount.
+	if !updated {
+		util.WriteJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Transaction not found",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Transaction updated successfully",
+	})
+}
+
+func (h *HandlerLayerInstance) DeleteTransaction(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	vars := mux.Vars(r)
+	transactionID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Invalid transaction id",
+		})
+		return
+	}
+
+	deleted, err := h.services.DeleteTransaction(transactionID, currentUser.ID)
+	if err != nil {
+		fmt.Println("DELETE TRANSACTION ERROR:", err)
+		http.Error(w, "Failed to delete transaction", http.StatusInternalServerError)
+		return
+	}
+
+	if !deleted {
+		util.WriteJSON(w, http.StatusNotFound, map[string]string{
+			"error": "Transaction not found",
+		})
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Transaction deleted successfully",
 	})
 }
 

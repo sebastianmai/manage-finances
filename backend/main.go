@@ -35,6 +35,9 @@ func main() {
 	router.HandleFunc("/accounts/{id}", h.DeleteAccount).Methods("DELETE")
 	router.HandleFunc("/accounts/{id}", h.UpdateAccountFlags).Methods("PATCH")
 	router.HandleFunc("/transactions", h.CreateTransaction).Methods("POST")
+	router.HandleFunc("/transactions", h.GetTransactions).Methods("GET")
+	router.HandleFunc("/transactions/{id}", h.UpdateTransaction).Methods("PATCH")
+	router.HandleFunc("/transactions/{id}", h.DeleteTransaction).Methods("DELETE")
 	router.HandleFunc("/logout", h.Logout).Methods("POST")
 
 	log.Println("Server running on http://localhost:8080")
