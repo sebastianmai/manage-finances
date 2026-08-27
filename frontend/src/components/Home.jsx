@@ -129,7 +129,7 @@ export default function Home() {
                 )}
             </div>
             <div className="bg-ui-light-bg p-6 rounded-lg shadow-md">
-                <p className="text-ui-text/70 mb-2">Rates by account</p>
+                <p className="text-ui-text/70 mb-2">Accounts overview</p>
                 {accountsError ? (
                     <p className="text-ui-btn-warn">{accountsError}</p>
                 ) : (

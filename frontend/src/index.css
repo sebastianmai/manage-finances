@@ -20,6 +20,13 @@
      across both themes instead of following the theme swap. */
   --chart-zinssatz: #2563eb;
   --chart-basiszins: #d97706;
+  /* Same green TransactionsPage already uses for a positive amount, reused
+     here so "balance" reads as the same color concept in both places. */
+  --chart-saldo: #16a34a;
+  /* The portion of a balance above the deposit-protection threshold --
+     reuses --btn-warn rather than a new hex, so "at risk" stays the same
+     red as every other warning/danger use in this app. */
+  --chart-saldo-over: var(--btn-warn);
 }
 
 [data-theme="dark"] {
