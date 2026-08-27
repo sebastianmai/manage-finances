@@ -76,6 +76,11 @@ export default function Navbar({ theme, setTheme }) {
                             <NavLink to="/transactions">Transactions</NavLink>
                         </button>
                     )}
+                    {user && (
+                        <button type="button" className="px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
+                            <NavLink to="/statistics">Statistics</NavLink>
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center">
                     {checkingAuth ? null : user ? (<Profile theme={theme} setTheme={setTheme}/>):
