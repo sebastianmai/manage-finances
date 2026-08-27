@@ -19,10 +19,11 @@ import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
 
 function App() {
 
-  const [theme, setTheme] = useState('dark')
+  const [theme, setTheme] = useState(() => sessionStorage.getItem('theme') || 'dark')
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    sessionStorage.setItem('theme', theme);
   }, [theme]);
 
   return (
