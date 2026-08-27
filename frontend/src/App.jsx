@@ -12,6 +12,7 @@ import TransactionsPage from './components/TransactionsPage'
 import NewTransactionPage from './components/NewTransactionPage'
 import EditTransactionPage from './components/EditTransactionPage'
 import StatisticsPage from './components/StatisticsPage'
+import ScrollToTopButton from './components/ScrollToTopButton'
 
 import {useState, useEffect} from 'react'
 import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
@@ -43,7 +44,7 @@ function App() {
             <Route path="/" element={<Home />} />
           </Routes>
         </div>
-        
+        <ScrollToTopButton />
       </div>
     </Router>
   )

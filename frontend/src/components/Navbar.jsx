@@ -53,7 +53,7 @@ export default function Navbar({ theme, setTheme }) {
     }
 
     return (
-        <div className="min-h-full bg-ui-light-bg">
+        <div className="sticky top-0 z-20 min-h-full bg-ui-light-bg">
             <div className="hidden sm:flex sm:items-center sm:justify-between sm:ml-6 sm:mr-6 sm:py-3">
                 <div className="flex items-center space-x-4">
                     {navigation.map((item) => (
