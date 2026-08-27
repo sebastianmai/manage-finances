@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { CATEGORIES } from '../constants/categories';
+import CategoryComboBox from './CategoryComboBox';
 
 const EMPTY_FORM = {
     transaction_date: '',
@@ -17,6 +17,7 @@ export default function NewTransactionPage() {
     const navigate = useNavigate();
 
     const [accounts, setAccounts] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -50,13 +51,38 @@ export default function NewTransactionPage() {
         }
     }, [navigate]);
 
+    // Non-blocking by design (D-10): the category input still accepts any
+    // text even with no suggestions, unlike the account select above, which
+    // this page genuinely cannot function without. No 401 navigation
+    // either -- the accounts fetch already covers auth for this page. A
+    // failure is logged and the suggestion list simply stays empty.
+    const getCategories = useCallback(async () => {
+        try {
+            const response = await fetch('http://localhost:8080/categories', {
+                method: 'GET',
+                credentials: 'include',
+            });
+
+            if (!response.ok) {
+                console.error('Failed to load categories:', response.status);
+                return;
+            }
+
+            const { categories: userCategories } = await response.json();
+            setCategories(userCategories);
+        } catch (err) {
+            console.error('Error getting categories:', err);
+        }
+    }, []);
+
     useEffect(() => {
         const loadOnMount = async () => {
             await getAccounts();
+            await getCategories();
         };
 
         loadOnMount();
-    }, [getAccounts]);
+    }, [getAccounts, getCategories]);
 
     const handleChange = (e) => {
         const { id, value, type, checked } = e.target;
@@ -84,6 +110,14 @@ export default function NewTransactionPage() {
 
             return next;
         });
+    };
+
+    // Kept separate from handleChange: that handler reads e.target.id off
+    // a synthetic event and carries account_id/is_transfer cross-field
+    // logic that has nothing to do with the category, so a one-line
+    // dedicated handler is the smaller mechanism here.
+    const handleCategoryChange = (nextCategory) => {
+        setForm((prev) => ({ ...prev, category: nextCategory }));
     };
 
     const handleSubmit = async (e) => {
@@ -234,19 +268,16 @@ export default function NewTransactionPage() {
                         <label htmlFor="category" className="text-ui-text font-bold">
                             Category:
                         </label>
-                        <select
-                            className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
+                        {/* Free text is still the point here: typing a
+                            category nobody has used yet is a first-class
+                            path, not a fallback, and the backend persists
+                            it on save. */}
+                        <CategoryComboBox
                             id="category"
                             value={form.category}
-                            onChange={handleChange}
-                        >
-                            <option value="" disabled>Select a category</option>
-                            {CATEGORIES.map((category) => (
-                                <option key={category} value={category}>
-                                    {category}
-                                </option>
-                            ))}
-                        </select>
+                            categories={categories}
+                            onChange={handleCategoryChange}
+                        />
                     </div>
                     <div className="grid grid-cols-[140px_1fr] items-center gap-2">
                         <label htmlFor="description" className="text-ui-text font-bold">

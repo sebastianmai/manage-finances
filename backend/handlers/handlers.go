@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -248,6 +249,35 @@ func (h *HandlerLayerInstance) GetAccounts(w http.ResponseWriter, r *http.Reques
 
 	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
 		"accounts": accounts,
+	})
+}
+
+func (h *HandlerLayerInstance) GetCategories(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	user, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	categories, err := h.services.GetCategories(user.ID)
+	if err != nil {
+		fmt.Println("GET CATEGORIES ERROR:", err)
+		http.Error(w, "Failed to retrieve categories", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"categories": categories,
 	})
 }
 
@@ -610,9 +640,23 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 	// is the only possible owner.
 	req.UUID = currentUser.ID
 
+	// Trimmed before the required-fields check below, so a whitespace-only
+	// category is rejected there rather than becoming a whitespace-named
+	// row further down the write path.
+	req.Category = strings.TrimSpace(req.Category)
+
 	if req.AccountID == "" || req.TransactionDate == "" || req.Category == "" || req.Description == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Account, date, category, and description are required",
+		})
+		return
+	}
+
+	// Mirrors the column width now that the value is stored in two places
+	// (transactions.category and categories.name).
+	if len(req.Category) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Category must be 50 characters or fewer",
 		})
 		return
 	}
@@ -765,9 +809,12 @@ func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Re
 	// This is an input-bounding gate mirroring the category column's
 	// VARCHAR(50) width -- the same role the description cap in
 	// CreateTransaction and the comment cap in CreateAccount already play --
-	// not a whitelist: categories are a frontend-only list with no table or
-	// constraint behind them, so there is nothing to validate the value
-	// against beyond its length.
+	// not a whitelist: a categories table now backs the suggestion list and
+	// the dedup guarantee, but this filter value is deliberately not
+	// validated against it. Doing so would hand back an ownership oracle
+	// (does this category exist for this user?) that the rest of this file
+	// carefully avoids, so there is nothing to validate the value against
+	// beyond its length.
 	if category := r.URL.Query().Get("category"); category != "" {
 		if len(category) > 50 {
 			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -829,9 +876,23 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 	// UPDATE never names that column, so a transaction cannot be moved
 	// between accounts through this endpoint.
 
+	// Trimmed before the required-fields check below, so a whitespace-only
+	// category is rejected there rather than becoming a whitespace-named
+	// row further down the write path.
+	req.Category = strings.TrimSpace(req.Category)
+
 	if req.TransactionDate == "" || req.Category == "" || req.Description == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Date, category, and description are required",
+		})
+		return
+	}
+
+	// Mirrors the column width now that the value is stored in two places
+	// (transactions.category and categories.name).
+	if len(req.Category) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Category must be 50 characters or fewer",
 		})
 		return
 	}

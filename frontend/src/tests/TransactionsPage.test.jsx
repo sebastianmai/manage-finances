@@ -1,7 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TransactionsPage from '../components/TransactionsPage';
-import { CATEGORIES } from '../constants/categories';
 import {
   renderAtRoute,
   installFetchMock,
@@ -55,11 +54,27 @@ const txn3 = {
   updated_at: '2026-08-25 10:00:00',
 };
 
+// The eight seeded names plus one invented one that never appeared in the
+// retired constant -- the invented entry is load-bearing: it is what
+// distinguishes options that came from the response from options that came
+// from a bundled list.
+const CATEGORY_FIXTURE = [
+  'Dining',
+  'Entertainment',
+  'Groceries',
+  'Health',
+  'Housing',
+  'Kinderbetreuung',
+  'Savings',
+  'Transportation',
+  'Utilities',
+];
+
 function setup() {
   return renderAtRoute(<TransactionsPage />, {
     route: '/transactions',
     path: '/transactions',
-    sentinels: ['/login', '/transactions/new'],
+    sentinels: ['/login', '/transactions/new', '/transactions/:id/edit'],
   });
 }
 
@@ -107,7 +122,8 @@ describe('TransactionsPage', () => {
     test('non-401 not-ok (500): shows load error, does not navigate', async () => {
       fetchMock
         .mockResolvedValueOnce(notOkResponse(500))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -119,7 +135,8 @@ describe('TransactionsPage', () => {
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock
         .mockRejectedValueOnce(new Error('network down'))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -133,7 +150,8 @@ describe('TransactionsPage', () => {
     test('failing /accounts fetch: shows Failed to load accounts, does not navigate', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [] }))
-        .mockResolvedValueOnce(notOkResponse(500));
+        .mockResolvedValueOnce(notOkResponse(500))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -141,10 +159,11 @@ describe('TransactionsPage', () => {
       expect(screen.queryByText('navigated:/login')).not.toBeInTheDocument();
     });
 
-    test('mount issues GET /transactions then GET /accounts, both with credentials: include', async () => {
+    test('mount issues GET /transactions, GET /accounts, then GET /categories, all with credentials: include', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: [] }));
 
       setup();
 
@@ -160,6 +179,11 @@ describe('TransactionsPage', () => {
         'http://localhost:8080/accounts',
         expect.objectContaining({ method: 'GET', credentials: 'include' })
       );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        'http://localhost:8080/categories',
+        expect.objectContaining({ method: 'GET', credentials: 'include' })
+      );
     });
   });
 
@@ -167,7 +191,8 @@ describe('TransactionsPage', () => {
     test('two transactions render as two data rows plus a header row', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -192,7 +217,8 @@ describe('TransactionsPage', () => {
     test('account column shows the resolved short_name; the raw account_id UUID appears nowhere', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -207,7 +233,8 @@ describe('TransactionsPage', () => {
     test('a negative amount cell carries text-red-500 and a positive one text-green-600', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -221,7 +248,8 @@ describe('TransactionsPage', () => {
     test('empty list renders "No transactions yet." and no table', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
 
       setup();
 
@@ -232,7 +260,8 @@ describe('TransactionsPage', () => {
     test('"Add booking" is a link to /transactions/new; clicking it navigates there; no inline form is present', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       const user = userEvent.setup();
       setup();
 
@@ -251,7 +280,8 @@ describe('TransactionsPage', () => {
     function setupThreeTxns() {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       return setup();
     }
 
@@ -319,7 +349,8 @@ describe('TransactionsPage', () => {
     function setupThreeTxns() {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       return setup();
     }
 
@@ -431,156 +462,36 @@ describe('TransactionsPage', () => {
     function setupThreeTxns() {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       return setup();
     }
 
-    test('clicking Edit reveals prefilled inputs and swaps Edit/Delete for Save/Cancel', async () => {
+    // Mirrors AccountsPage's per-row edit-link test: Edit is a NavLink to
+    // the dedicated page, not an in-row toggle (D-04).
+    test('each row carries a per-row Edit link to /transactions/{id}/edit; clicking it navigates there', async () => {
       const user = userEvent.setup();
+      setupThreeTxns();
+
+      const link = await screen.findByRole('link', { name: `Edit ${txn1.description}` });
+      expect(link).toHaveAttribute('href', `/transactions/${txn1.id}/edit`);
+
+      await user.click(link);
+
+      expect(await screen.findByText('navigated:/transactions/:id/edit')).toBeInTheDocument();
+    });
+
+    test('no inline edit affordance survives: no Save or Cancel control anywhere, and clicking Edit issues no PATCH', async () => {
       setupThreeTxns();
 
       await screen.findByText(txn1.description);
 
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
+      expect(screen.queryByRole('button', { name: /^Save/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Cancel/ })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(`Amount: ${txn1.description}`)).not.toBeInTheDocument();
 
-      expect(screen.getByLabelText(`Date: ${txn1.description}`)).toHaveValue(txn1.transaction_date);
-      expect(screen.getByLabelText(`Amount: ${txn1.description}`)).toHaveValue(txn1.amount);
-      expect(screen.getByLabelText(`Description: ${txn1.description}`)).toHaveValue(txn1.description);
-      expect(screen.getByLabelText(`Category: ${txn1.description}`)).toHaveValue(txn1.category);
-
-      expect(screen.getByRole('button', { name: `Save ${txn1.description}` })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: `Cancel ${txn1.description}` })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: `Edit ${txn1.description}` })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: `Delete ${txn1.description}` })).not.toBeInTheDocument();
-    });
-
-    test('save success: PATCHes the right url/method/credentials/headers with a numeric amount, closes edit, refetches', async () => {
-      const user = userEvent.setup();
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
-        .mockResolvedValueOnce(jsonResponse({ message: 'Transaction updated successfully' }))
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }));
-      setup();
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      await screen.findByRole('button', { name: `Edit ${txn1.description}` });
-
-      expect(fetchMock).toHaveBeenCalledTimes(4);
-      const [url, options] = fetchMock.mock.calls[2];
-      expect(url).toBe(`http://localhost:8080/transactions/${txn1.id}`);
-      expect(options.method).toBe('PATCH');
-      expect(options.credentials).toBe('include');
-      expect(options.headers).toEqual(expect.objectContaining({ 'Content-Type': 'application/json' }));
-
-      const body = JSON.parse(options.body);
-      expect(typeof body.amount).toBe('number');
-      expect(body.amount).toBe(txn1.amount);
-    });
-
-    test('the PATCH body contains no account_id key', async () => {
-      const user = userEvent.setup();
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
-        .mockResolvedValueOnce(jsonResponse({ message: 'Transaction updated successfully' }))
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }));
-      setup();
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      await screen.findByRole('button', { name: `Edit ${txn1.description}` });
-
-      const [, options] = fetchMock.mock.calls[2];
-      const body = JSON.parse(options.body);
-      expect(body).not.toHaveProperty('account_id');
-    });
-
-    test('save failure (not-ok): shows error, leaves row in edit mode with the attempted values', async () => {
-      const user = userEvent.setup();
-      setupThreeTxns();
-      fetchMock.mockResolvedValueOnce(notOkResponse(500));
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      const amountInput = screen.getByLabelText(`Amount: ${txn1.description}`);
-      await user.clear(amountInput);
-      await user.type(amountInput, '-75');
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      expect(await screen.findByText('Failed to update transaction')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: `Save ${txn1.description}` })).toBeInTheDocument();
-      expect(screen.getByLabelText(`Amount: ${txn1.description}`)).toHaveValue(-75);
-    });
-
-    test('save rejection: shows error, calls console.error, stays in edit mode', async () => {
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const user = userEvent.setup();
-      setupThreeTxns();
-      fetchMock.mockRejectedValueOnce(new Error('network down'));
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      expect(await screen.findByText('Failed to update transaction')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: `Save ${txn1.description}` })).toBeInTheDocument();
-      expect(errorSpy).toHaveBeenCalled();
-
-      errorSpy.mockRestore();
-    });
-
-    test('clearing description and saving shows "All fields are required" and issues no PATCH', async () => {
-      const user = userEvent.setup();
-      setupThreeTxns();
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      const descriptionInput = screen.getByLabelText(`Description: ${txn1.description}`);
-      await user.clear(descriptionInput);
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      expect(await screen.findByText('All fields are required')).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledTimes(2); // mount GETs only
-    });
-
-    test('an amount of 0 shows "Amount cannot be zero" and issues no PATCH', async () => {
-      const user = userEvent.setup();
-      setupThreeTxns();
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      const amountInput = screen.getByLabelText(`Amount: ${txn1.description}`);
-      await user.clear(amountInput);
-      await user.type(amountInput, '0');
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      expect(await screen.findByText('Amount cannot be zero')).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledTimes(2); // mount GETs only
-    });
-
-    test('cancel closes the edit row and issues no PATCH', async () => {
-      const user = userEvent.setup();
-      setupThreeTxns();
-
-      await screen.findByText(txn1.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      await user.click(screen.getByRole('button', { name: `Cancel ${txn1.description}` }));
-
-      expect(screen.getByRole('button', { name: `Edit ${txn1.description}` })).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledTimes(2); // mount GETs only
+      const patchCalls = fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH');
+      expect(patchCalls).toHaveLength(0);
     });
   });
 
@@ -588,7 +499,8 @@ describe('TransactionsPage', () => {
     function setupThreeTxns() {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       return setup();
     }
 
@@ -604,6 +516,7 @@ describe('TransactionsPage', () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
         .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }))
         .mockResolvedValueOnce(jsonResponse({ message: 'Transaction deleted successfully' }))
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn2, txn3] }));
       const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
@@ -616,8 +529,8 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn2.description);
 
-      expect(fetchMock).toHaveBeenCalledTimes(4);
-      const [url, options] = fetchMock.mock.calls[2];
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      const [url, options] = fetchMock.mock.calls[3];
       expect(url).toBe(`http://localhost:8080/transactions/${txn1.id}`);
       expect(options.method).toBe('DELETE');
       expect(options.credentials).toBe('include');
@@ -635,7 +548,7 @@ describe('TransactionsPage', () => {
       await user.click(await screen.findByRole('button', { name: `Delete ${txn1.description}` }));
 
       expect(confirmSpy).toHaveBeenCalledTimes(1);
-      expect(fetchMock).toHaveBeenCalledTimes(2); // mount GETs only
+      expect(fetchMock).toHaveBeenCalledTimes(3); // mount GETs only
       expect(screen.getByText(txn1.description)).toBeInTheDocument();
 
       confirmSpy.mockRestore();
@@ -651,7 +564,7 @@ describe('TransactionsPage', () => {
 
       expect(confirmSpy).toHaveBeenCalledTimes(1);
       expect(await screen.findByText('Failed to delete transaction')).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledTimes(3); // mount GETs + DELETE, no refresh GET
+      expect(fetchMock).toHaveBeenCalledTimes(4); // mount GETs + DELETE, no refresh GET
       expect(screen.getByText(txn1.description)).toBeInTheDocument();
 
       confirmSpy.mockRestore();
@@ -680,7 +593,8 @@ describe('TransactionsPage', () => {
     function setupWithAccounts() {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }));
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(jsonResponse({ categories: CATEGORY_FIXTURE }));
       return setup();
     }
 
@@ -709,11 +623,11 @@ describe('TransactionsPage', () => {
       expect(screen.getByText(txn1.description)).toBeInTheDocument();
       expect(screen.queryByText(txn2.description)).not.toBeInTheDocument();
 
-      const [url] = fetchMock.mock.calls[2];
+      const [url] = fetchMock.mock.calls[3];
       expect(url).toBe(`http://localhost:8080/transactions?account_id=${accountGiro.id}`);
     });
 
-    test('choosing an account does not refetch /accounts: total fetch count after one filter change is three', async () => {
+    test('choosing an account does not refetch /accounts or /categories: total fetch count after one filter change is four', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
       fetchMock.mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
@@ -724,8 +638,9 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn3.description);
 
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(fetchMock.mock.calls[2][0]).not.toBe('http://localhost:8080/accounts');
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock.mock.calls[3][0]).not.toBe('http://localhost:8080/accounts');
+      expect(fetchMock.mock.calls[3][0]).not.toBe('http://localhost:8080/categories');
     });
 
     test('a not-ok response to a filtered fetch shows the existing load-failure message and does not navigate', async () => {
@@ -753,17 +668,45 @@ describe('TransactionsPage', () => {
       expect(await screen.findByText('navigated:/login')).toBeInTheDocument();
     });
 
-    test('the category filter renders an all-categories option selected by default, plus one option per shared category constant', async () => {
+    // Rewritten from the bundled-constant version: options now come from
+    // the categories fetch response, proven by CATEGORY_FIXTURE's invented
+    // 'Kinderbetreuung' entry, which never existed in the retired constant
+    // and could only be here because it was re-sourced (D-02, D-11).
+    test('the category filter renders an all-categories option selected by default, plus exactly the categories the backend returned, in order', async () => {
       setupWithAccounts();
 
       await screen.findByText(txn1.description);
 
       const categorySelect = screen.getByLabelText('Category:');
       expect(categorySelect).toHaveValue('');
-      expect(screen.getByRole('option', { name: 'All categories' })).toBeInTheDocument();
-      CATEGORIES.forEach((category) => {
-        expect(screen.getByRole('option', { name: category })).toBeInTheDocument();
-      });
+      const optionLabels = within(categorySelect)
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+      expect(optionLabels).toEqual(['All categories', ...CATEGORY_FIXTURE]);
+    });
+
+    test('a failing categories fetch leaves the filter with only its all-categories option, still renders every row, shows no page-level error (D-10)', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountGiro, accountTages] }))
+        .mockResolvedValueOnce(notOkResponse(500));
+
+      setup();
+
+      await screen.findByText(txn1.description);
+      expect(screen.getByText(txn2.description)).toBeInTheDocument();
+      expect(screen.getByText(txn3.description)).toBeInTheDocument();
+
+      const categorySelect = screen.getByLabelText('Category:');
+      const optionLabels = within(categorySelect)
+        .getAllByRole('option')
+        .map((option) => option.textContent);
+      expect(optionLabels).toEqual(['All categories']);
+      expect(errorSpy).toHaveBeenCalled();
+      expect(screen.queryByText('Failed to load transactions')).not.toBeInTheDocument();
+
+      errorSpy.mockRestore();
     });
 
     test('choosing a category issues a request carrying category and no account parameter', async () => {
@@ -777,8 +720,26 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn3.description);
 
-      const [url] = fetchMock.mock.calls[2];
+      const [url] = fetchMock.mock.calls[3];
       expect(url).toBe('http://localhost:8080/transactions?category=Groceries');
+    });
+
+    // Uses the invented category (never part of the old bundled constant)
+    // to prove the filter's option source is genuinely the backend
+    // response, not a coincidental overlap with the retired list.
+    test('choosing the backend-only category issues a filtered request carrying that exact name', async () => {
+      const user = userEvent.setup();
+      setupWithAccounts();
+      fetchMock.mockResolvedValueOnce(jsonResponse({ transactions: [] }));
+
+      await screen.findByText(txn1.description);
+
+      await user.selectOptions(screen.getByLabelText('Category:'), 'Kinderbetreuung');
+
+      await screen.findByText('No transactions match your filters.');
+
+      const [url] = fetchMock.mock.calls[3];
+      expect(url).toBe('http://localhost:8080/transactions?category=Kinderbetreuung');
     });
 
     test('choosing both an account and a category issues a request carrying both parameters', async () => {
@@ -796,7 +757,7 @@ describe('TransactionsPage', () => {
       await user.selectOptions(screen.getByLabelText('Category:'), 'Groceries');
       await screen.findByText(txn1.description);
 
-      const [url] = fetchMock.mock.calls[3];
+      const [url] = fetchMock.mock.calls[4];
       expect(url).toBe(
         `http://localhost:8080/transactions?account_id=${accountGiro.id}&category=Groceries`
       );
@@ -852,7 +813,7 @@ describe('TransactionsPage', () => {
       expect(screen.getByLabelText('Account:')).toHaveValue('');
       expect(screen.getByLabelText('Category:')).toHaveValue('');
 
-      const [url] = fetchMock.mock.calls[4];
+      const [url] = fetchMock.mock.calls[5];
       expect(url).toBe('http://localhost:8080/transactions');
     });
 
@@ -875,7 +836,7 @@ describe('TransactionsPage', () => {
       await user.selectOptions(screen.getByLabelText('Account:'), '');
       await screen.findByText(txn3.description);
 
-      const [url] = fetchMock.mock.calls[4];
+      const [url] = fetchMock.mock.calls[5];
       expect(url).toBe('http://localhost:8080/transactions?category=Groceries');
     });
 
@@ -898,32 +859,10 @@ describe('TransactionsPage', () => {
       await screen.findByText(txn3.description);
       expect(screen.queryByText(txn1.description)).not.toBeInTheDocument();
 
-      const [url] = fetchMock.mock.calls[4];
+      const [url] = fetchMock.mock.calls[5];
       expect(url).toBe(`http://localhost:8080/transactions?account_id=${accountGiro.id}`);
 
       confirmSpy.mockRestore();
-    });
-
-    test('with a filter active, saving an inline edit issues a refetch whose URL still carries that filter', async () => {
-      const user = userEvent.setup();
-      setupWithAccounts();
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ message: 'Transaction updated successfully' }))
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
-
-      await screen.findByText(txn1.description);
-
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
-      await screen.findByText(txn3.description);
-
-      await user.click(screen.getByRole('button', { name: `Edit ${txn1.description}` }));
-      await user.click(screen.getByRole('button', { name: `Save ${txn1.description}` }));
-
-      await screen.findByRole('button', { name: `Edit ${txn1.description}` });
-
-      const [url] = fetchMock.mock.calls[4];
-      expect(url).toBe(`http://localhost:8080/transactions?account_id=${accountGiro.id}`);
     });
 
     test('the description search still narrows the server-filtered rows further, on top of the active sort', async () => {

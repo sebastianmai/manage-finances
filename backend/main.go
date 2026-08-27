@@ -39,6 +39,7 @@ func main() {
 	router.HandleFunc("/transactions", h.GetTransactions).Methods("GET")
 	router.HandleFunc("/transactions/{id}", h.UpdateTransaction).Methods("PATCH")
 	router.HandleFunc("/transactions/{id}", h.DeleteTransaction).Methods("DELETE")
+	router.HandleFunc("/categories", h.GetCategories).Methods("GET")
 	router.HandleFunc("/logout", h.Logout).Methods("POST")
 
 	log.Println("Server running on http://localhost:8080")

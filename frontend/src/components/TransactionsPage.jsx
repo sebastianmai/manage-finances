@@ -1,18 +1,10 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
-import { CATEGORIES } from '../constants/categories';
 
 const amountFormatter = new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency: 'EUR',
 });
-
-const EMPTY_EDIT_FORM = {
-    transaction_date: '',
-    category: '',
-    description: '',
-    amount: '',
-};
 
 const EMPTY_FILTERS = {
     account_id: '',
@@ -25,12 +17,11 @@ export default function TransactionsPage() {
 
     const [transactions, setTransactions] = useState([]);
     const [accounts, setAccounts] = useState([]);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [sort, setSort] = useState({ column: 'transaction_date', direction: 'desc' });
-    const [editingId, setEditingId] = useState(null);
-    const [editForm, setEditForm] = useState({ ...EMPTY_EDIT_FORM });
     const [filters, setFilters] = useState({ ...EMPTY_FILTERS });
 
     // activeFilters is passed explicitly rather than read back from the
@@ -96,15 +87,40 @@ export default function TransactionsPage() {
         }
     }, []);
 
+    // Non-blocking by design (D-10): the category filter is suggestions and
+    // filter options, not data this page's rendering depends on, unlike the
+    // accounts fetch above. No 401 navigation either -- the transactions
+    // fetch already covers auth. A failure is logged and the filter's
+    // option list simply stays empty.
+    const getCategories = useCallback(async () => {
+        try {
+            const response = await fetch('http://localhost:8080/categories', {
+                method: 'GET',
+                credentials: 'include',
+            });
+
+            if (!response.ok) {
+                console.error('Failed to load categories:', response.status);
+                return;
+            }
+
+            const { categories: userCategories } = await response.json();
+            setCategories(userCategories);
+        } catch (err) {
+            console.error('Error getting categories:', err);
+        }
+    }, []);
+
     useEffect(() => {
         const loadOnMount = async () => {
             await getTransactions(EMPTY_FILTERS);
             await getAccounts();
+            await getCategories();
             setLoading(false);
         };
 
         loadOnMount();
-    }, [getTransactions, getAccounts]);
+    }, [getTransactions, getAccounts, getCategories]);
 
     // Stores the next filters immediately and awaits the refetch with that
     // same object, rather than reading filters back from state -- reading
@@ -162,79 +178,6 @@ export default function TransactionsPage() {
         }
         return sort.direction === 'desc' ? result * -1 : result;
     });
-
-    const handleEdit = (transaction) => {
-        setEditingId(transaction.id);
-        setEditForm({
-            transaction_date: transaction.transaction_date,
-            category: transaction.category,
-            description: transaction.description,
-            amount: transaction.amount,
-        });
-        setError('');
-    };
-
-    const handleEditChange = (e) => {
-        const { id, value } = e.target;
-        setEditForm({
-            ...editForm,
-            [id]: value,
-        });
-    };
-
-    const handleEditCancel = () => {
-        setEditingId(null);
-        setEditForm({ ...EMPTY_EDIT_FORM });
-        setError('');
-    };
-
-    const handleEditSave = async () => {
-        setError('');
-
-        if (
-            !editForm.transaction_date ||
-            !editForm.category ||
-            !editForm.description ||
-            !editForm.amount
-        ) {
-            setError('All fields are required');
-            return;
-        }
-
-        const amountNumber = Number(editForm.amount);
-        if (amountNumber === 0) {
-            setError('Amount cannot be zero');
-            return;
-        }
-
-        try {
-            const response = await fetch(`http://localhost:8080/transactions/${editingId}`, {
-                method: 'PATCH',
-                credentials: 'include',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    transaction_date: editForm.transaction_date,
-                    category: editForm.category,
-                    description: editForm.description,
-                    amount: amountNumber,
-                }),
-            });
-
-            if (!response.ok) {
-                setError('Failed to update transaction');
-                return;
-            }
-
-            setEditingId(null);
-            setEditForm({ ...EMPTY_EDIT_FORM });
-            await getTransactions(filters);
-        } catch (err) {
-            console.error('Error updating transaction:', err);
-            setError('Failed to update transaction');
-        }
-    };
 
     const handleDelete = async (transaction) => {
         const confirmed = window.confirm(
@@ -345,7 +288,7 @@ export default function TransactionsPage() {
                             onChange={(e) => applyFilter('category', e.target.value)}
                         >
                             <option value="">All categories</option>
-                            {CATEGORIES.map((category) => (
+                            {categories.map((category) => (
                                 <option key={category} value={category}>
                                     {category}
                                 </option>
@@ -412,100 +355,30 @@ export default function TransactionsPage() {
                             <tbody>
                                 {sortedTransactions.map((transaction) => (
                                     <tr key={transaction.id} className="border-b border-ui-text/10 hover:bg-ui-bg/40">
-                                        {editingId === transaction.id ? (
-                                            <>
-                                                <td className="px-3 py-2 whitespace-nowrap">
-                                                    <input
-                                                        className="bg-ui-bg text-ui-text rounded-md py-1 px-2 focus:outline-none focus:ring-2"
-                                                        type="date"
-                                                        id="transaction_date"
-                                                        aria-label={`Date: ${transaction.description}`}
-                                                        value={editForm.transaction_date}
-                                                        onChange={handleEditChange}
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2">{accountNamesById[transaction.account_id] || '—'}</td>
-                                                <td className="px-3 py-2 whitespace-nowrap">
-                                                    <input
-                                                        className="bg-ui-bg text-ui-text rounded-md py-1 px-2 focus:outline-none focus:ring-2 w-24 text-right"
-                                                        type="number"
-                                                        step="0.01"
-                                                        id="amount"
-                                                        aria-label={`Amount: ${transaction.description}`}
-                                                        value={editForm.amount}
-                                                        onChange={handleEditChange}
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <input
-                                                        className="bg-ui-bg text-ui-text rounded-md py-1 px-2 focus:outline-none focus:ring-2"
-                                                        type="text"
-                                                        id="description"
-                                                        maxLength={180}
-                                                        aria-label={`Description: ${transaction.description}`}
-                                                        value={editForm.description}
-                                                        onChange={handleEditChange}
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2">
-                                                    <input
-                                                        className="bg-ui-bg text-ui-text rounded-md py-1 px-2 focus:outline-none focus:ring-2"
-                                                        type="text"
-                                                        id="category"
-                                                        maxLength={50}
-                                                        aria-label={`Category: ${transaction.description}`}
-                                                        value={editForm.category}
-                                                        onChange={handleEditChange}
-                                                    />
-                                                </td>
-                                                <td className="px-3 py-2 text-right whitespace-nowrap">
-                                                    <button
-                                                        type="button"
-                                                        className="bg-ui-btn text-ui-btn-text font-bold py-1 px-3 rounded-md mr-2"
-                                                        aria-label={`Save ${transaction.description}`}
-                                                        onClick={handleEditSave}
-                                                    >
-                                                        Save
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="bg-ui-btn-warn text-ui-btn-text font-bold py-1 px-3 rounded-md"
-                                                        aria-label={`Cancel ${transaction.description}`}
-                                                        onClick={handleEditCancel}
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </td>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <td className="px-3 py-2 whitespace-nowrap">{transaction.transaction_date}</td>
-                                                <td className="px-3 py-2">{accountNamesById[transaction.account_id] || '—'}</td>
-                                                <td className={`px-3 py-2 tabular-nums text-right whitespace-nowrap ${transaction.amount > 0 ? 'text-green-600' : transaction.amount < 0 ? 'text-red-500' : ''}`}>
-                                                    {amountFormatter.format(transaction.amount)}
-                                                </td>
-                                                <td className="px-3 py-2">{transaction.description}</td>
-                                                <td className="px-3 py-2 whitespace-nowrap">{transaction.category}</td>
-                                                <td className="px-3 py-2 text-right whitespace-nowrap">
-                                                    <button
-                                                        type="button"
-                                                        className="bg-ui-btn text-ui-btn-text font-bold py-1 px-3 rounded-md mr-2"
-                                                        aria-label={`Edit ${transaction.description}`}
-                                                        onClick={() => handleEdit(transaction)}
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="bg-ui-btn-warn text-ui-btn-text font-bold py-1 px-3 rounded-md"
-                                                        aria-label={`Delete ${transaction.description}`}
-                                                        onClick={() => handleDelete(transaction)}
-                                                    >
-                                                        Delete
-                                                    </button>
-                                                </td>
-                                            </>
-                                        )}
+                                        <td className="px-3 py-2 whitespace-nowrap">{transaction.transaction_date}</td>
+                                        <td className="px-3 py-2">{accountNamesById[transaction.account_id] || '—'}</td>
+                                        <td className={`px-3 py-2 tabular-nums text-right whitespace-nowrap ${transaction.amount > 0 ? 'text-green-600' : transaction.amount < 0 ? 'text-red-500' : ''}`}>
+                                            {amountFormatter.format(transaction.amount)}
+                                        </td>
+                                        <td className="px-3 py-2">{transaction.description}</td>
+                                        <td className="px-3 py-2 whitespace-nowrap">{transaction.category}</td>
+                                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                                            <NavLink
+                                                to={`/transactions/${transaction.id}/edit`}
+                                                className="inline-block bg-ui-btn text-ui-btn-text font-bold py-1 px-3 rounded-md mr-2"
+                                                aria-label={`Edit ${transaction.description}`}
+                                            >
+                                                Edit
+                                            </NavLink>
+                                            <button
+                                                type="button"
+                                                className="bg-ui-btn-warn text-ui-btn-text font-bold py-1 px-3 rounded-md"
+                                                aria-label={`Delete ${transaction.description}`}
+                                                onClick={() => handleDelete(transaction)}
+                                            >
+                                                Delete
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

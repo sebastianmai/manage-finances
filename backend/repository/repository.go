@@ -45,6 +45,21 @@ type RepositoryLayerInstance struct {
 	db *sql.DB
 }
 
+// defaultCategories is the deliberate paired copy of migration
+// 005_categories.sql's backfill VALUES list. A migration cannot call into
+// Go, and this slice cannot retroactively seed users created before it
+// shipped, so both copies exist and must change together.
+var defaultCategories = []string{
+	"Groceries",
+	"Housing",
+	"Transportation",
+	"Utilities",
+	"Entertainment",
+	"Health",
+	"Dining",
+	"Savings",
+}
+
 var (
 	repositoryInstance *RepositoryLayerInstance
 	repositoryErr      error
@@ -111,20 +126,53 @@ func connectToDatabase(dsn string) (*sql.DB, error) {
 	return database, nil
 }
 
-func (r *RepositoryLayerInstance) PutUser(UUID, firstName, lastName, email, password string) error {
+// PutUser is transactional (D-13): the user row and their starter
+// categories commit or roll back together, following CreateBooking's idiom
+// exactly. Without this, every account created after categories shipped
+// would start with an empty datalist and an empty filter -- a regression
+// against the bundled constant, which was always there.
+func (r *RepositoryLayerInstance) PutUser(UUID, firstName, lastName, email, password string) (err error) {
 
 	hash, err := util.HashPwd(password)
 	if err != nil {
 		return fmt.Errorf("hashing password: %w", err)
 	}
 
-	_, err = r.db.Exec(`
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("beginning user creation transaction: %w", err)
+	}
+
+	// Rolls back only when the named return err is non-nil at the time this
+	// closure runs. err must stay a named return and must never be shadowed
+	// with := anywhere in this function -- see CreateBooking's identical
+	// guard for the full reasoning.
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`
 		INSERT INTO users (uuid, first_name, last_name, email, password_hash)
 		VALUES ($1, $2, $3, $4, $5)
-	`, UUID, firstName, lastName, email, hash)
+	`, UUID, firstName, lastName, email, hash); err != nil {
+		err = fmt.Errorf("inserting user: %w", err)
+		return err
+	}
 
-	if err != nil {
-		return fmt.Errorf("inserting user: %w", err)
+	for _, name := range defaultCategories {
+		if _, err = tx.Exec(`
+			INSERT INTO categories (uuid, name) VALUES ($1, $2)
+		`, UUID, name); err != nil {
+			err = fmt.Errorf("seeding default category: %w", err)
+			return err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		err = fmt.Errorf("committing user creation transaction: %w", err)
+		return err
 	}
 
 	return nil
@@ -430,11 +478,53 @@ func (r *RepositoryLayerInstance) UpdateAccount(userUUID string, account models.
 	return rowsAffected > 0, nil
 }
 
+// resolveCategory returns the caller's canonical spelling for name, creating
+// a new category row only on a genuine case-insensitive miss (D-03, D-14).
+// It takes the caller's *sql.Tx, never *sql.DB and never the receiver's own
+// pool (T-260826-n1y-05): running inside the caller's transaction is what
+// makes a category and the booking that introduced it commit or roll back
+// together -- a signature taking *sql.DB would defeat that silently.
+// Returning the stored spelling, not the raw input, matters because
+// GetTransactionsByUser compares categories with plain equality: a
+// near-duplicate spelling written to the transaction row would drop that
+// booking out of its own filter.
+func (r *RepositoryLayerInstance) resolveCategory(tx *sql.Tx, userUUID, name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+
+	var stored string
+	err := tx.QueryRow(`
+		SELECT name FROM categories WHERE uuid = $1 AND lower(name) = lower($2)
+	`, userUUID, trimmed).Scan(&stored)
+	if err == nil {
+		return stored, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("looking up category: %w", err)
+	}
+
+	// No case-insensitive match exists yet -- insert the trimmed name as
+	// typed. The unique index on (uuid, lower(name)) is the race backstop:
+	// a concurrent insert of the same name raises a unique violation that
+	// fails the whole booking rather than quietly creating a
+	// near-duplicate, and a retry then takes the lookup branch above.
+	if err := tx.QueryRow(`
+		INSERT INTO categories (uuid, name) VALUES ($1, $2) RETURNING name
+	`, userUUID, trimmed).Scan(&stored); err != nil {
+		return "", fmt.Errorf("inserting category: %w", err)
+	}
+
+	return stored, nil
+}
+
 // CreateBooking posts one or two transaction legs (two only for a transfer)
 // and their matching saldo updates inside a single sql.Tx: either every leg
 // lands, or none does. The caller has already decided each leg's sign; this
 // method just posts what it is given, atomically.
 func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err error) {
+	if len(legs) == 0 {
+		return fmt.Errorf("creating booking: no legs supplied")
+	}
+
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("beginning booking transaction: %w", err)
@@ -454,11 +544,21 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 		}
 	}()
 
+	// Every leg of one booking carries the same category by construction
+	// (a transfer's two legs are one user action), so it is resolved once
+	// against the first leg rather than once per leg.
+	var category string
+	category, err = r.resolveCategory(tx, legs[0].UUID, legs[0].Category)
+	if err != nil {
+		err = fmt.Errorf("resolving category: %w", err)
+		return err
+	}
+
 	for _, leg := range legs {
 		if _, err = tx.Exec(`
 			INSERT INTO transactions (uuid, account_id, amount, description, category, transaction_date)
 			VALUES ($1, $2, $3, $4, $5, $6::date)
-		`, leg.UUID, leg.AccountID, leg.Amount, leg.Description, leg.Category, leg.TransactionDate); err != nil {
+		`, leg.UUID, leg.AccountID, leg.Amount, leg.Description, category, leg.TransactionDate); err != nil {
 			err = fmt.Errorf("inserting transaction: %w", err)
 			return err
 		}
@@ -627,6 +727,13 @@ func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.
 		return false, err
 	}
 
+	var category string
+	category, err = r.resolveCategory(tx, userUUID, txn.Category)
+	if err != nil {
+		err = fmt.Errorf("resolving category: %w", err)
+		return false, err
+	}
+
 	// account_id is deliberately absent from the SET list -- a transaction
 	// cannot be moved between accounts, and leaving the column out of the
 	// statement is what makes that true no matter what a client sends.
@@ -637,7 +744,7 @@ func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.
 		UPDATE transactions
 		SET description = $1, category = $2, transaction_date = $3::date, amount = $4, updated_at = CURRENT_TIMESTAMP
 		WHERE transaction_id = $5 AND uuid = $6
-	`, txn.Description, txn.Category, txn.TransactionDate, txn.Amount, txn.ID, userUUID); err != nil {
+	`, txn.Description, category, txn.TransactionDate, txn.Amount, txn.ID, userUUID); err != nil {
 		err = fmt.Errorf("updating transaction: %w", err)
 		return false, err
 	}
@@ -772,4 +879,35 @@ func (r *RepositoryLayerInstance) GetAllSessions() ([]models.Session, error) {
 	}
 
 	return sessions, nil
+}
+
+// GetCategoriesByUser follows GetAccountsByUser's shape exactly. It returns
+// bare names rather than a models.Category struct (D-07): a category is
+// nothing but a name, and its surrogate id is a storage detail no client
+// needs. The slice is initialised as an empty literal, not left nil, so an
+// owner with no categories serialises as [] rather than null, matching how
+// GetAccountsByUser and GetTransactionsByUser already avoid a null body.
+func (r *RepositoryLayerInstance) GetCategoriesByUser(userUUID string) ([]string, error) {
+	rows, err := r.db.Query(`
+		SELECT name FROM categories WHERE uuid = $1 ORDER BY name ASC
+	`, userUUID)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving categories: %w", err)
+	}
+	defer rows.Close()
+
+	categories := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scanning category: %w", err)
+		}
+		categories = append(categories, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating categories: %w", err)
+	}
+
+	return categories, nil
 }

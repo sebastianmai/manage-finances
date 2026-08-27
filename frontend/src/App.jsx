@@ -10,6 +10,7 @@ import NewAccountPage from './components/NewAccountPage'
 import EditAccountPage from './components/EditAccountPage'
 import TransactionsPage from './components/TransactionsPage'
 import NewTransactionPage from './components/NewTransactionPage'
+import EditTransactionPage from './components/EditTransactionPage'
 
 import {useState, useEffect} from 'react'
 import {BrowserRouter as Router, Route, Routes} from 'react-router-dom'
@@ -36,6 +37,7 @@ function App() {
             <Route path="/accounts/:id/edit" element={<EditAccountPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
             <Route path="/transactions/new" element={<NewTransactionPage />} />
+            <Route path="/transactions/:id/edit" element={<EditTransactionPage />} />
             <Route path="/" element={<Home />} />
           </Routes>
         </div>

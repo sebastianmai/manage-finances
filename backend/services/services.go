@@ -135,6 +135,10 @@ func (s *ServiceLayerInstance) GetTransactions(userUUID string, filter models.Tr
 	return s.repository.GetTransactionsByUser(userUUID, filter)
 }
 
+func (s *ServiceLayerInstance) GetCategories(userUUID string) ([]string, error) {
+	return s.repository.GetCategoriesByUser(userUUID)
+}
+
 func (s *ServiceLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (bool, error) {
 	return s.repository.UpdateTransaction(userUUID, txn)
 }
