@@ -232,19 +232,31 @@ export default function NewTransactionPage() {
                         <label htmlFor="account_id" className="text-ui-text font-bold">
                             Account:
                         </label>
-                        <select
-                            className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
-                            id="account_id"
-                            value={form.account_id}
-                            onChange={handleChange}
-                        >
-                            <option value="" disabled>Select an account</option>
-                            {accounts.map((account) => (
-                                <option key={account.id} value={account.id}>
-                                    {account.short_name} — {account.full_name}
-                                </option>
-                            ))}
-                        </select>
+                        <div className="relative">
+                            <svg
+                                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
+                            >
+                                <polyline points="6 8 10 12 14 8" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <select
+                                className="bg-ui-bg text-ui-text rounded-md py-2 pl-3 pr-9 w-full appearance-none focus:outline-none focus:ring-2"
+                                id="account_id"
+                                value={form.account_id}
+                                onChange={handleChange}
+                            >
+                                <option value="" disabled>Select an account</option>
+                                {accounts.map((account) => (
+                                    <option key={account.id} value={account.id}>
+                                        {account.short_name} — {account.full_name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                     <div className="grid grid-cols-[140px_1fr] items-center gap-2">
                         <label htmlFor="category" className="text-ui-text font-bold">
@@ -300,19 +312,31 @@ export default function NewTransactionPage() {
                             <label htmlFor="transfer_to_account_id" className="text-ui-text font-bold">
                                 Transfer to:
                             </label>
-                            <select
-                                className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
-                                id="transfer_to_account_id"
-                                value={form.transfer_to_account_id}
-                                onChange={handleChange}
-                            >
-                                <option value="" disabled>Select a destination account</option>
-                                {destinationOptions.map((account) => (
-                                    <option key={account.id} value={account.id}>
-                                        {account.short_name} — {account.full_name}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="relative">
+                                <svg
+                                    className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                    viewBox="0 0 20 20"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    aria-hidden="true"
+                                >
+                                    <polyline points="6 8 10 12 14 8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <select
+                                    className="bg-ui-bg text-ui-text rounded-md py-2 pl-3 pr-9 w-full appearance-none focus:outline-none focus:ring-2"
+                                    id="transfer_to_account_id"
+                                    value={form.transfer_to_account_id}
+                                    onChange={handleChange}
+                                >
+                                    <option value="" disabled>Select a destination account</option>
+                                    {destinationOptions.map((account) => (
+                                        <option key={account.id} value={account.id}>
+                                            {account.short_name} — {account.full_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     )}
                     <div className="mt-4 flex justify-end">

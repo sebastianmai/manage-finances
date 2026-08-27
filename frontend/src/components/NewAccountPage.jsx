@@ -143,15 +143,27 @@ export default function NewAccountPage() {
                         <label htmlFor="type" className="text-ui-text font-bold">
                             Type:
                         </label>
-                        <select
-                            className="bg-ui-bg text-ui-text rounded-md py-2 px-3 focus:outline-none focus:ring-2"
-                            id="type"
-                            value={form.type}
-                            onChange={handleChange}
-                        >
-                            <option value="Haupt">Haupt</option>
-                            <option value="Anlage">Anlage</option>
-                        </select>
+                        <div className="relative">
+                            <svg
+                                className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                viewBox="0 0 20 20"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                aria-hidden="true"
+                            >
+                                <polyline points="6 8 10 12 14 8" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            <select
+                                className="bg-ui-bg text-ui-text rounded-md py-2 pl-3 pr-9 w-full appearance-none focus:outline-none focus:ring-2"
+                                id="type"
+                                value={form.type}
+                                onChange={handleChange}
+                            >
+                                <option value="Haupt">Haupt</option>
+                                <option value="Anlage">Anlage</option>
+                            </select>
+                        </div>
                     </div>
                     <div className="grid grid-cols-[140px_1fr] items-center gap-2">
                         <label htmlFor="account_number" className="text-ui-text font-bold">
