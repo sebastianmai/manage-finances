@@ -79,3 +79,14 @@ type BalanceHistory struct {
 	Total    []BalancePoint         `json:"total"`
 	Accounts []AccountBalanceSeries `json:"accounts"`
 }
+
+// ResolvedCategory carries the canonical spelling of a submitted category
+// name plus whether the repository still has to insert it. Create is set
+// only on a case-insensitive miss against the user's existing categories;
+// the named unique index on the categories table
+// (categories_uuid_name_lower_key) remains the backstop if two requests
+// race between this lookup and the repository's insert.
+type ResolvedCategory struct {
+	Name   string
+	Create bool
+}

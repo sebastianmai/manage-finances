@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -433,33 +432,27 @@ func (r *RepositoryLayerInstance) UpdateAccount(userUUID string, account models.
 	return rowsAffected > 0, nil
 }
 
-// Returns the canonical spelling, creating the row only on a case-insensitive miss.
-func (r *RepositoryLayerInstance) resolveCategory(tx *sql.Tx, userUUID, name string) (string, error) {
-	trimmed := strings.TrimSpace(name)
-
+// insertCategory inserts a category row and returns its stored name. The
+// service layer now does the case-insensitive lookup before calling this,
+// which widens the window between read and write; the failure mode is
+// unchanged from before that split -- the losing request's booking
+// transaction rolls back rather than silently duplicating a row -- and
+// categories_uuid_name_lower_key, a storage-level guarantee, is what still
+// backstops it regardless of what Go believes.
+func (r *RepositoryLayerInstance) insertCategory(tx *sql.Tx, userUUID, name string) (string, error) {
 	var stored string
-	err := tx.QueryRow(`
-		SELECT name FROM categories WHERE uuid = $1 AND lower(name) = lower($2)
-	`, userUUID, trimmed).Scan(&stored)
-	if err == nil {
-		return stored, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("looking up category: %w", err)
-	}
-
-	// No match yet: insert. Unique index is the race backstop.
 	if err := tx.QueryRow(`
 		INSERT INTO categories (uuid, name) VALUES ($1, $2) RETURNING name
-	`, userUUID, trimmed).Scan(&stored); err != nil {
+	`, userUUID, name).Scan(&stored); err != nil {
 		return "", fmt.Errorf("inserting category: %w", err)
 	}
-
 	return stored, nil
 }
 
-// Posts one or two legs and their saldo updates atomically.
-func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err error) {
+// Posts one or two legs and their saldo updates atomically. resolved is
+// looked up by the service layer before this call; it is inserted here
+// only when resolved.Create says it doesn't exist yet.
+func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction, resolved models.ResolvedCategory) (err error) {
 	if len(legs) == 0 {
 		return fmt.Errorf("creating booking: no legs supplied")
 	}
@@ -476,12 +469,14 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 		}
 	}()
 
-	// Resolved once against the first leg; both legs share one category.
-	var category string
-	category, err = r.resolveCategory(tx, legs[0].UUID, legs[0].Category)
-	if err != nil {
-		err = fmt.Errorf("resolving category: %w", err)
-		return err
+	// Both legs share one category, as they did before the split.
+	category := resolved.Name
+	if resolved.Create {
+		category, err = r.insertCategory(tx, legs[0].UUID, resolved.Name)
+		if err != nil {
+			err = fmt.Errorf("resolving category: %w", err)
+			return err
+		}
 	}
 
 	for _, leg := range legs {
@@ -524,42 +519,15 @@ func (r *RepositoryLayerInstance) CreateBooking(legs []models.Transaction) (err 
 	return nil
 }
 
-// Pure function so placeholder numbering is unit-testable without a DB.
-func buildTransactionFilterClause(filter models.TransactionFilter, nextIndex int) (string, []any) {
-	var clause strings.Builder
-	var args []any
-	index := nextIndex
-
-	if filter.AccountID != "" {
-		fmt.Fprintf(&clause, " AND account_id = $%d", index)
-		args = append(args, filter.AccountID)
-		index++
-	}
-
-	// Appended after account so placeholder numbering matches arg order.
-	if filter.Category != "" {
-		fmt.Fprintf(&clause, " AND category = $%d", index)
-		args = append(args, filter.Category)
-		index++
-	}
-
-	return clause.String(), args
-}
-
-// uuid = $1 stays first and unconditional; filter only narrows further.
-func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string, filter models.TransactionFilter) ([]models.Transaction, error) {
-	whereClause, filterArgs := buildTransactionFilterClause(filter, 2)
-
-	args := append([]any{userUUID}, filterArgs...)
-
-	query := `
+// uuid = $1 is the only narrowing this query does; filtering by account or
+// category happens in the service layer, in Go, over this broad fetch.
+func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string) ([]models.Transaction, error) {
+	rows, err := r.db.Query(`
 		SELECT transaction_id, account_id, amount::float8, COALESCE(description, ''),
 			COALESCE(category, ''), transaction_date::date::text, updated_at::text
-		FROM transactions WHERE uuid = $1` + whereClause + `
+		FROM transactions WHERE uuid = $1
 		ORDER BY transaction_date DESC, transaction_id DESC
-	`
-
-	rows, err := r.db.Query(query, args...)
+	`, userUUID)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving transactions: %w", err)
 	}
@@ -590,7 +558,10 @@ func (r *RepositoryLayerInstance) GetTransactionsByUser(userUUID string, filter 
 }
 
 // Takes a struct, not positional args, for the same reason as CreateAccount.
-func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (updated bool, err error) {
+// resolved is looked up by the service layer before this call; the row
+// lock below protects the amount delta, never the category, so resolving
+// it before the lock is fine.
+func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction, resolved models.ResolvedCategory) (updated bool, err error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return false, fmt.Errorf("beginning update transaction: %w", err)
@@ -619,11 +590,13 @@ func (r *RepositoryLayerInstance) UpdateTransaction(userUUID string, txn models.
 		return false, err
 	}
 
-	var category string
-	category, err = r.resolveCategory(tx, userUUID, txn.Category)
-	if err != nil {
-		err = fmt.Errorf("resolving category: %w", err)
-		return false, err
+	category := resolved.Name
+	if resolved.Create {
+		category, err = r.insertCategory(tx, userUUID, resolved.Name)
+		if err != nil {
+			err = fmt.Errorf("resolving category: %w", err)
+			return false, err
+		}
 	}
 
 	// account_id absent from SET: a transaction can't change accounts.
@@ -757,132 +730,6 @@ func (r *RepositoryLayerInstance) GetAllSessions() ([]models.Session, error) {
 	}
 
 	return sessions, nil
-}
-
-// Scan-only shape between GetMonthlyBalancesByUser and groupMonthlyBalanceRows.
-type monthlyBalanceRow struct {
-	AccountID      string
-	ShortName      string
-	IncludeInSaldo bool
-	Month          string
-	Balance        float64
-}
-
-// Reconstructs a true end-of-month balance per account from saldo + history.
-func (r *RepositoryLayerInstance) GetMonthlyBalancesByUser(userUUID string) ([]string, []models.AccountBalanceSeries, error) {
-	rows, err := r.db.Query(`
-		WITH bounds AS (
-			-- LEAST/GREATEST skip NULLs; degrades to empty history cleanly.
-			SELECT
-				LEAST(
-					(SELECT date_trunc('month', MIN(active_since))::date FROM accounts WHERE uuid = $1),
-					(SELECT date_trunc('month', MIN(transaction_date))::date FROM transactions WHERE uuid = $1)
-				) AS first_month,
-				GREATEST(
-					date_trunc('month', CURRENT_DATE)::date,
-					(SELECT date_trunc('month', MAX(transaction_date))::date FROM transactions WHERE uuid = $1),
-					(SELECT date_trunc('month', MAX(active_since))::date FROM accounts WHERE uuid = $1)
-				) AS last_month
-		),
-		months AS (
-			SELECT generate_series(first_month, last_month, interval '1 month')::date AS month FROM bounds
-		),
-		acct AS (
-			-- opening = saldo minus all current transaction amounts.
-			SELECT
-				a.account_id,
-				a.short_name,
-				a.include_in_saldo,
-				a.saldo - COALESCE(
-					(SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.account_id AND t.uuid = a.uuid),
-					0
-				) AS opening
-			FROM accounts a
-			WHERE a.uuid = $1
-		),
-		deltas AS (
-			SELECT account_id, date_trunc('month', transaction_date)::date AS month, SUM(amount) AS delta
-			FROM transactions
-			WHERE uuid = $1
-			GROUP BY account_id, date_trunc('month', transaction_date)
-		)
-		-- CROSS JOIN + COALESCE(delta, 0) carries balance forward for gap months.
-		SELECT
-			a.account_id,
-			a.short_name,
-			a.include_in_saldo,
-			to_char(m.month, 'YYYY-MM') AS month,
-			(a.opening + SUM(COALESCE(d.delta, 0)) OVER (
-				PARTITION BY a.account_id ORDER BY m.month
-				ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-			))::float8 AS balance
-		FROM acct a
-		CROSS JOIN months m
-		LEFT JOIN deltas d ON d.account_id = a.account_id AND d.month = m.month
-		ORDER BY a.short_name ASC, a.account_id ASC, m.month ASC
-	`, userUUID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("retrieving monthly balances: %w", err)
-	}
-	defer rows.Close()
-
-	balanceRows := []monthlyBalanceRow{}
-	for rows.Next() {
-		var row monthlyBalanceRow
-		if err := rows.Scan(
-			&row.AccountID,
-			&row.ShortName,
-			&row.IncludeInSaldo,
-			&row.Month,
-			&row.Balance,
-		); err != nil {
-			return nil, nil, fmt.Errorf("scanning monthly balance: %w", err)
-		}
-		balanceRows = append(balanceRows, row)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, nil, fmt.Errorf("iterating monthly balances: %w", err)
-	}
-
-	months, series := groupMonthlyBalanceRows(balanceRows)
-	return months, series, nil
-}
-
-// Pure function so grouping is unit-testable without a live Postgres.
-func groupMonthlyBalanceRows(rows []monthlyBalanceRow) ([]string, []models.AccountBalanceSeries) {
-	// Empty literals, not nil: nil marshals to JSON null.
-	months := []string{}
-	series := []models.AccountBalanceSeries{}
-
-	seenMonths := map[string]bool{}
-	seriesIndex := map[string]int{}
-
-	for _, row := range rows {
-		if !seenMonths[row.Month] {
-			seenMonths[row.Month] = true
-			months = append(months, row.Month)
-		}
-
-		idx, ok := seriesIndex[row.AccountID]
-		if !ok {
-			series = append(series, models.AccountBalanceSeries{
-				AccountID:      row.AccountID,
-				ShortName:      row.ShortName,
-				IncludeInSaldo: row.IncludeInSaldo,
-				Points:         []models.BalancePoint{},
-			})
-			idx = len(series) - 1
-			seriesIndex[row.AccountID] = idx
-		}
-
-		series[idx].Points = append(series[idx].Points, models.BalancePoint{
-			Month:   row.Month,
-			Balance: row.Balance,
-		})
-	}
-
-	return months, series
 }
 
 // Returns bare names; the surrogate id is a storage detail no client needs.

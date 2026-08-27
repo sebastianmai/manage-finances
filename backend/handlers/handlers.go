@@ -86,6 +86,28 @@ func (h *HandlerLayerInstance) CreateUser(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Mirrors users.first_name's and users.last_name's width.
+	if len(req.FirstName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "First name must be 50 characters or fewer",
+		})
+		return
+	}
+	if len(req.LastName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Last name must be 50 characters or fewer",
+		})
+		return
+	}
+
+	// Mirrors users.email's width.
+	if len(req.Email) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Email must be 100 characters or fewer",
+		})
+		return
+	}
+
 	err := h.services.CreateUser(req.UUID, req.FirstName, req.LastName, req.Email, req.Password)
 	if err != nil {
 		fmt.Println("CREATE USER ERROR:", err)
@@ -119,9 +141,11 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 
 	user, err := h.services.LoginUser(req.Email)
 	if err != nil {
+		// Generic message only: distinguishing an unknown email from any
+		// other failure here would hand an unauthenticated caller an
+		// oracle for which emails have accounts.
 		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
 			"error": "Invalid email or password",
-			"test":  err.Error(),
 		})
 		return
 	}
@@ -389,6 +413,69 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Format gate at the boundary, not a business rule: active_since
+	// forwards into a DATE column, so a value Postgres can't parse would
+	// otherwise surface as a 500 instead of a clean 400.
+	if _, err := time.Parse("2006-01-02", req.ActiveSince); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Active since must be a valid date in YYYY-MM-DD format",
+		})
+		return
+	}
+
+	// Mirrors accounts.account_number's and accounts.short_name's width.
+	if len(req.AccountNumber) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Account number must be 50 characters or fewer",
+		})
+		return
+	}
+	if len(req.ShortName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Short name must be 50 characters or fewer",
+		})
+		return
+	}
+
+	// Mirrors accounts.full_name's, owner_name's and vollmacht's width.
+	if len(req.FullName) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Full name must be 100 characters or fewer",
+		})
+		return
+	}
+	if len(req.OwnerName) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Owner name must be 100 characters or fewer",
+		})
+		return
+	}
+	if len(req.Vollmacht) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Vollmacht must be 100 characters or fewer",
+		})
+		return
+	}
+
+	// Both rate columns are DECIMAL(5, 2): an absolute value of 1000 or
+	// more cannot be stored. Checked only when present -- absent is a
+	// legitimate value for both. Like every gate above, this checks only
+	// the shape of the submitted value, never whether a record exists or
+	// who owns it -- turning a shape gate into an existence check would
+	// hand back the ownership oracle the other handlers deliberately avoid.
+	if req.Zinssatz != nil && math.Abs(*req.Zinssatz) >= 1000 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Zinssatz must have an absolute value below 1000",
+		})
+		return
+	}
+	if req.Basiszins != nil && math.Abs(*req.Basiszins) >= 1000 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Basiszins must have an absolute value below 1000",
+		})
+		return
+	}
+
 	if err := h.services.CreateAccount(req); err != nil {
 		fmt.Println("CREATE ACCOUNT ERROR:", err)
 		http.Error(w, "Failed to create account", http.StatusInternalServerError)
@@ -585,6 +672,63 @@ func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Format gate at the boundary, not a business rule: active_since
+	// forwards into a DATE column.
+	if _, err := time.Parse("2006-01-02", req.ActiveSince); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Active since must be a valid date in YYYY-MM-DD format",
+		})
+		return
+	}
+
+	if len(req.AccountNumber) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Account number must be 50 characters or fewer",
+		})
+		return
+	}
+	if len(req.ShortName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Short name must be 50 characters or fewer",
+		})
+		return
+	}
+
+	if len(req.FullName) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Full name must be 100 characters or fewer",
+		})
+		return
+	}
+	if len(req.OwnerName) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Owner name must be 100 characters or fewer",
+		})
+		return
+	}
+	if len(req.Vollmacht) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Vollmacht must be 100 characters or fewer",
+		})
+		return
+	}
+
+	// Both rate columns are DECIMAL(5, 2). Checked only when present --
+	// absent is a legitimate value for both -- and, like every gate above,
+	// checks only shape, never existence or ownership.
+	if req.Zinssatz != nil && math.Abs(*req.Zinssatz) >= 1000 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Zinssatz must have an absolute value below 1000",
+		})
+		return
+	}
+	if req.Basiszins != nil && math.Abs(*req.Basiszins) >= 1000 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Basiszins must have an absolute value below 1000",
+		})
+		return
+	}
+
 	updated, err := h.services.UpdateAccount(currentUser.ID, req)
 	if err != nil {
 		fmt.Println("UPDATE ACCOUNT ERROR:", err)
@@ -637,6 +781,15 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 	if req.AccountID == "" || req.TransactionDate == "" || req.Category == "" || req.Description == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Account, date, category, and description are required",
+		})
+		return
+	}
+
+	// Format gate at the boundary, not a business rule: transaction_date
+	// forwards into a DATE column.
+	if _, err := time.Parse("2006-01-02", req.TransactionDate); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Transaction date must be a valid date in YYYY-MM-DD format",
 		})
 		return
 	}
@@ -842,6 +995,15 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Format gate at the boundary, not a business rule: transaction_date
+	// forwards into a DATE column.
+	if _, err := time.Parse("2006-01-02", req.TransactionDate); err != nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Transaction date must be a valid date in YYYY-MM-DD format",
+		})
+		return
+	}
+
 	// Mirrors categories.name's width.
 	if len(req.Category) > 50 {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -957,6 +1119,28 @@ func (h *HandlerLayerInstance) UpdateUser(w http.ResponseWriter, r *http.Request
 	if req.FirstName == "" || req.LastName == "" || req.Email == "" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "First name, last name, and email are required",
+		})
+		return
+	}
+
+	// Mirrors users.first_name's and users.last_name's width.
+	if len(req.FirstName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "First name must be 50 characters or fewer",
+		})
+		return
+	}
+	if len(req.LastName) > 50 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Last name must be 50 characters or fewer",
+		})
+		return
+	}
+
+	// Mirrors users.email's width.
+	if len(req.Email) > 100 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Email must be 100 characters or fewer",
 		})
 		return
 	}
