@@ -223,6 +223,40 @@ func (h *HandlerLayerInstance) GetBalance(w http.ResponseWriter, r *http.Request
 	})
 }
 
+// GetBalanceHistory accepts no query parameters at all: the owning user
+// comes from the session cookie and nothing else, so there is no
+// client-supplied value that could reach the query. The account/year
+// narrowing D-03 and D-04 describe is view state the page applies to this
+// one payload rather than a second server round-trip.
+func (h *HandlerLayerInstance) GetBalanceHistory(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	user, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	history, err := h.services.GetBalanceHistory(user.ID)
+	if err != nil {
+		fmt.Println("GET BALANCE HISTORY ERROR:", err)
+		http.Error(w, "Failed to retrieve balance history", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"history": history,
+	})
+}
+
 func (h *HandlerLayerInstance) GetAccounts(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {

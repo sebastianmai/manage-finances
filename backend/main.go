@@ -30,6 +30,7 @@ func main() {
 	router.HandleFunc("/me", h.GetUser).Methods("GET")
 	router.HandleFunc("/me", h.UpdateUser).Methods("PATCH")
 	router.HandleFunc("/balance", h.GetBalance).Methods("GET")
+	router.HandleFunc("/balance/history", h.GetBalanceHistory).Methods("GET")
 	router.HandleFunc("/accounts", h.GetAccounts).Methods("GET")
 	router.HandleFunc("/accounts", h.CreateAccount).Methods("POST")
 	router.HandleFunc("/accounts/{id}", h.DeleteAccount).Methods("DELETE")

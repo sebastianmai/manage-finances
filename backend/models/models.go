@@ -92,3 +92,35 @@ type TransactionFilter struct {
 	AccountID string
 	Category  string
 }
+
+// BalancePoint is one reconstructed end-of-month balance. Month is a plain
+// YYYY-MM string, matching the YYYY-MM-DD wire format Account.ActiveSince
+// and Transaction.TransactionDate already use.
+type BalancePoint struct {
+	Month   string  `json:"month"`
+	Balance float64 `json:"balance"`
+}
+
+// AccountBalanceSeries is one account's full monthly balance history plus
+// the account metadata needed to label and drill into it -- ShortName for
+// the select option text, IncludeInSaldo so the frontend can mirror
+// GetAccounts's "every account is listed, not every account counts toward
+// the total" contract for the drill-down.
+type AccountBalanceSeries struct {
+	AccountID      string         `json:"account_id"`
+	ShortName      string         `json:"short_name"`
+	IncludeInSaldo bool           `json:"include_in_saldo"`
+	Points         []BalancePoint `json:"points"`
+}
+
+// BalanceHistory is the payload for GET /balance/history. Months is the
+// canonical dense month axis; Total and every Accounts[i].Points are
+// guaranteed the same length and the same month sequence as Months -- that
+// alignment is what lets the frontend swap which series it plots without
+// re-deriving an x-domain, and what makes the year-range control a pure
+// slice rather than a second computation (D-04).
+type BalanceHistory struct {
+	Months   []string               `json:"months"`
+	Total    []BalancePoint         `json:"total"`
+	Accounts []AccountBalanceSeries `json:"accounts"`
+}

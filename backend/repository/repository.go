@@ -881,6 +881,169 @@ func (r *RepositoryLayerInstance) GetAllSessions() ([]models.Session, error) {
 	return sessions, nil
 }
 
+// monthlyBalanceRow is the shape GetMonthlyBalancesByUser scans into. It
+// never crosses the wire -- it exists only between Scan and
+// groupMonthlyBalanceRows -- so it stays unexported and out of models,
+// exactly like the fields buildTransactionFilterClause builds never
+// themselves become a models type.
+type monthlyBalanceRow struct {
+	AccountID      string
+	ShortName      string
+	IncludeInSaldo bool
+	Month          string
+	Balance        float64
+}
+
+// GetMonthlyBalancesByUser reconstructs a true end-of-month balance per
+// account, per month, from the current accounts.saldo plus the transaction
+// history (D-01). It runs one query taking exactly one parameter, $1 =
+// userUUID -- no client-supplied value ever reaches this query, and that is
+// deliberate and must stay true.
+func (r *RepositoryLayerInstance) GetMonthlyBalancesByUser(userUUID string) ([]string, []models.AccountBalanceSeries, error) {
+	rows, err := r.db.Query(`
+		WITH bounds AS (
+			-- LEAST/GREATEST skip NULL inputs rather than needing COALESCE:
+			-- with no accounts and no transactions both bounds are NULL,
+			-- generate_series over a NULL bound yields zero rows below, and
+			-- the endpoint degrades to an empty history instead of erroring.
+			-- MAX(active_since) sits in the GREATEST list specifically so a
+			-- future-dated active_since cannot push first_month past
+			-- last_month and silently blank the whole chart.
+			SELECT
+				LEAST(
+					(SELECT date_trunc('month', MIN(active_since))::date FROM accounts WHERE uuid = $1),
+					(SELECT date_trunc('month', MIN(transaction_date))::date FROM transactions WHERE uuid = $1)
+				) AS first_month,
+				GREATEST(
+					date_trunc('month', CURRENT_DATE)::date,
+					(SELECT date_trunc('month', MAX(transaction_date))::date FROM transactions WHERE uuid = $1),
+					(SELECT date_trunc('month', MAX(active_since))::date FROM accounts WHERE uuid = $1)
+				) AS last_month
+		),
+		months AS (
+			SELECT generate_series(first_month, last_month, interval '1 month')::date AS month FROM bounds
+		),
+		acct AS (
+			-- opening recovers the account's balance before its first
+			-- transaction: saldo == opening + SUM(current transaction
+			-- amounts) holds at all times because CreateBooking,
+			-- UpdateTransaction and DeleteTransaction each keep saldo in
+			-- lockstep with the transaction rows. If that invariant is ever
+			-- broken, every point on this chart moves -- which is why the
+			-- live proof in Task 3 exists.
+			SELECT
+				a.account_id,
+				a.short_name,
+				a.include_in_saldo,
+				a.saldo - COALESCE(
+					(SELECT SUM(t.amount) FROM transactions t WHERE t.account_id = a.account_id AND t.uuid = a.uuid),
+					0
+				) AS opening
+			FROM accounts a
+			WHERE a.uuid = $1
+		),
+		deltas AS (
+			SELECT account_id, date_trunc('month', transaction_date)::date AS month, SUM(amount) AS delta
+			FROM transactions
+			WHERE uuid = $1
+			GROUP BY account_id, date_trunc('month', transaction_date)
+		)
+		-- The CROSS JOIN against the dense months series is precisely what
+		-- implements D-02: an inactive month contributes a COALESCEd zero to
+		-- the running window, so the cumulative total -- and therefore the
+		-- plotted balance -- simply holds its previous value rather than
+		-- dropping out or reading zero. The whole expression stays in
+		-- numeric and is cast to float8 exactly once at the end, mirroring
+		-- the saldo::float8 idiom in GetAccountsByUser, so no intermediate
+		-- rounding is introduced. The window frame is spelled out rather
+		-- than left to the default so the running-sum semantics are stated,
+		-- not inferred.
+		SELECT
+			a.account_id,
+			a.short_name,
+			a.include_in_saldo,
+			to_char(m.month, 'YYYY-MM') AS month,
+			(a.opening + SUM(COALESCE(d.delta, 0)) OVER (
+				PARTITION BY a.account_id ORDER BY m.month
+				ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+			))::float8 AS balance
+		FROM acct a
+		CROSS JOIN months m
+		LEFT JOIN deltas d ON d.account_id = a.account_id AND d.month = m.month
+		ORDER BY a.short_name ASC, a.account_id ASC, m.month ASC
+	`, userUUID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("retrieving monthly balances: %w", err)
+	}
+	defer rows.Close()
+
+	balanceRows := []monthlyBalanceRow{}
+	for rows.Next() {
+		var row monthlyBalanceRow
+		if err := rows.Scan(
+			&row.AccountID,
+			&row.ShortName,
+			&row.IncludeInSaldo,
+			&row.Month,
+			&row.Balance,
+		); err != nil {
+			return nil, nil, fmt.Errorf("scanning monthly balance: %w", err)
+		}
+		balanceRows = append(balanceRows, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("iterating monthly balances: %w", err)
+	}
+
+	months, series := groupMonthlyBalanceRows(balanceRows)
+	return months, series, nil
+}
+
+// groupMonthlyBalanceRows is a pure, database-free function extracted
+// specifically so the grouping is unit-testable without a live Postgres --
+// that matters more here than usual because the values are money. It walks
+// rows once, keying series by AccountID in a map while appending to an
+// ordered slice to preserve first-appearance order, and collects the
+// canonical months into a separate ordered slice guarded by a seen-set so a
+// month contributed by several accounts appears exactly once.
+func groupMonthlyBalanceRows(rows []monthlyBalanceRow) ([]string, []models.AccountBalanceSeries) {
+	// Initialised as empty literals, never as nil declarations: a nil slice
+	// marshals to JSON null, which would make the frontend's .map throw on
+	// a brand-new user with no accounts.
+	months := []string{}
+	series := []models.AccountBalanceSeries{}
+
+	seenMonths := map[string]bool{}
+	seriesIndex := map[string]int{}
+
+	for _, row := range rows {
+		if !seenMonths[row.Month] {
+			seenMonths[row.Month] = true
+			months = append(months, row.Month)
+		}
+
+		idx, ok := seriesIndex[row.AccountID]
+		if !ok {
+			series = append(series, models.AccountBalanceSeries{
+				AccountID:      row.AccountID,
+				ShortName:      row.ShortName,
+				IncludeInSaldo: row.IncludeInSaldo,
+				Points:         []models.BalancePoint{},
+			})
+			idx = len(series) - 1
+			seriesIndex[row.AccountID] = idx
+		}
+
+		series[idx].Points = append(series[idx].Points, models.BalancePoint{
+			Month:   row.Month,
+			Balance: row.Balance,
+		})
+	}
+
+	return months, series
+}
+
 // GetCategoriesByUser follows GetAccountsByUser's shape exactly. It returns
 // bare names rather than a models.Category struct (D-07): a category is
 // nothing but a name, and its surrogate id is a storage detail no client

@@ -147,6 +147,71 @@ func (s *ServiceLayerInstance) DeleteTransaction(transactionID int64, userUUID s
 	return s.repository.DeleteTransaction(transactionID, userUUID)
 }
 
+// GetBalanceHistory assembles the GET /balance/history payload: Months and
+// Accounts come straight from the repository's reconstruction, and Total is
+// derived here by totalSeries so the "total balance" gating rule lives in
+// one place, shared with GetBalance.
+func (s *ServiceLayerInstance) GetBalanceHistory(userUUID string) (models.BalanceHistory, error) {
+	months, accounts, err := s.repository.GetMonthlyBalancesByUser(userUUID)
+	if err != nil {
+		return models.BalanceHistory{}, fmt.Errorf("retrieving balance history: %w", err)
+	}
+
+	return models.BalanceHistory{
+		Months:   months,
+		Total:    totalSeries(months, accounts),
+		Accounts: accounts,
+	}, nil
+}
+
+// totalSeries sums each month's balance across every account flagged
+// IncludeInSaldo. Three things are worth stating explicitly:
+//
+// (1) It gates on IncludeInSaldo because that is already what "total
+// balance" means everywhere else in this app -- GetBalance does the same,
+// and a Total line that disagreed with the Home page's headline number
+// would read as a bug. Excluded accounts are still returned in full and
+// still drillable, exactly as GetAccountsByUser still returns them.
+//
+// (2) The rounding is the same defence GetBalance documents at length: the
+// repository hands over float64 approximations of a two-decimal column,
+// naive summation drifts off that domain, and rounding to two decimals
+// recovers the exact value.
+//
+// (3) Lookup is by month key rather than slice index so that a future
+// change to the repository's ordering cannot silently misalign one
+// account's history against another's -- with money, a silently-shifted
+// series is worse than a loud failure.
+func totalSeries(months []string, accounts []models.AccountBalanceSeries) []models.BalancePoint {
+	// One month-to-balance map per included account, built once rather than
+	// scanning every account's Points slice once per month.
+	balancesByAccount := make([]map[string]float64, 0, len(accounts))
+	for _, account := range accounts {
+		if !account.IncludeInSaldo {
+			continue
+		}
+		byMonth := make(map[string]float64, len(account.Points))
+		for _, point := range account.Points {
+			byMonth[point.Month] = point.Balance
+		}
+		balancesByAccount = append(balancesByAccount, byMonth)
+	}
+
+	total := []models.BalancePoint{}
+	for _, month := range months {
+		var sum float64
+		for _, byMonth := range balancesByAccount {
+			sum += byMonth[month]
+		}
+		total = append(total, models.BalancePoint{
+			Month:   month,
+			Balance: math.Round(sum*100) / 100,
+		})
+	}
+
+	return total
+}
+
 func (s *ServiceLayerInstance) GetUserBySession(sessionID string) (*models.User, error) {
 	sessions, err := s.repository.GetAllSessions()
 	if err != nil {
