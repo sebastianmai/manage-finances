@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 
-// How far down the page has to scroll before the button appears -- small
-// enough to be useful on a medium-length page, large enough that it does
-// not flicker in right after the page loads.
+// Scroll distance before the button appears.
 const SCROLL_SHOW_THRESHOLD = 10;
 
 export default function ScrollToTopButton() {
@@ -33,10 +31,7 @@ export default function ScrollToTopButton() {
             aria-label="Scroll to top"
             onClick={handleClick}
         >
-            {/* Path from src/assets/arrow.svg, inlined so it can pick up
-                text-ui-btn-text via currentColor and work in both themes,
-                the same way every other icon in this app is done -- the
-                asset's own hardcoded stroke="#000000" would not adapt. */}
+            {/* Inlined from src/assets/arrow.svg for currentColor. */}
             <svg
                 className="h-5 w-5"
                 viewBox="0 0 24 24"

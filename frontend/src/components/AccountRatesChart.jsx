@@ -8,9 +8,7 @@ const WIDTH = 640;
 const ROW_HEIGHT = 56;
 const MARGIN = { top: 16, right: 24, bottom: 32, left: 80 };
 
-// The statutory deposit-protection limit (EUR 100,000 per bank) -- the
-// fixed reference line in the balance view exists to make it visually
-// obvious which accounts sit above it.
+// Deposit-protection limit, drawn as a reference line.
 const BALANCE_THRESHOLD = 100000;
 
 const RATE_SERIES = [
@@ -35,12 +33,7 @@ export default function AccountRatesChart({ accounts }) {
     const svgRef = useRef(null);
     const [view, setView] = useState('rates');
 
-    // Every account gets a row, even one with neither rate/balance on file
-    // -- the chart's job is to show all account names, same as the
-    // accounts table does. A missing rate still renders as an invisible
-    // (opacity 0) bar rather than a real 0%, so "no rate recorded" stays
-    // visually distinct from "an explicit 0% rate" -- it just no longer
-    // hides the account.
+    // Every account gets a row, even with no rate on file.
     const chartAccounts = accounts;
 
     useEffect(() => {
@@ -51,10 +44,7 @@ export default function AccountRatesChart({ accounts }) {
             return;
         }
 
-        // Horizontal bars: each account gets a fixed-height row regardless
-        // of how many accounts there are, so the chart grows downward with
-        // the account list instead of squeezing every row into one fixed
-        // height. Shared by both views.
+        // Fixed row height; chart grows downward with account count.
         const innerWidth = WIDTH - MARGIN.left - MARGIN.right;
         const innerHeight = chartAccounts.length * ROW_HEIGHT;
         const height = innerHeight + MARGIN.top + MARGIN.bottom;
@@ -86,8 +76,7 @@ export default function AccountRatesChart({ accounts }) {
             );
 
             const x = scaleLinear()
-                // A flat maxRate of 0 (every plotted account has an explicit
-                // 0% rate) must still produce a visible, non-degenerate axis.
+                // Avoid a degenerate axis when every rate is 0.
                 .domain([0, maxRate > 0 ? maxRate : 1])
                 .nice()
                 .range([0, innerWidth]);
@@ -117,10 +106,7 @@ export default function AccountRatesChart({ accounts }) {
             return;
         }
 
-        // view === 'balance'. Domain always spans at least [0, threshold],
-        // so the reference line renders even when no account is anywhere
-        // close to it -- and extends further only if an account's saldo
-        // actually goes below 0 or above the threshold.
+        // Balance view: domain always spans at least [0, threshold].
         const maxSaldo = max(chartAccounts, (account) => account.saldo ?? 0) ?? 0;
         const minSaldo = min(chartAccounts, (account) => account.saldo ?? 0) ?? 0;
 
@@ -142,19 +128,11 @@ export default function AccountRatesChart({ accounts }) {
             .attr('class', 'account-group')
             .attr('transform', (account) => `translate(0,${y0(account.short_name)})`);
 
-        // A saldo bar starts at x(0), not x-position 0 -- the domain can
-        // start below zero, so "zero" and "the left edge" are not the same
-        // pixel. Width/x are computed from the gap to zero either way,
-        // which is what makes a rare negative saldo draw leftward from
-        // zero instead of producing a negative width.
+        // Bars start at x(0), not the left edge (domain can be negative).
         const zero = x(0);
         const thresholdX = x(BALANCE_THRESHOLD);
 
-        // Every bar's within-limit portion: the whole bar for a saldo at
-        // or below the threshold, or just the part up to the threshold
-        // line for one that exceeds it -- the excess becomes its own red
-        // segment below, rather than this rect changing color partway
-        // through, which SVG fills can't do.
+        // Within-limit portion; excess is a separate rect below.
         groups.append('rect')
             .attr('class', 'balance-bar-within')
             .attr('x', (account) => Math.min(zero, x(Math.min(account.saldo ?? 0, BALANCE_THRESHOLD))))
@@ -163,8 +141,7 @@ export default function AccountRatesChart({ accounts }) {
             .attr('width', (account) => Math.abs(x(Math.min(account.saldo ?? 0, BALANCE_THRESHOLD)) - zero))
             .attr('fill', 'var(--chart-saldo)');
 
-        // Only drawn for a saldo that actually exceeds the threshold --
-        // most accounts contribute nothing here.
+        // Only accounts over the threshold get this segment.
         groups
             .filter((account) => (account.saldo ?? 0) > BALANCE_THRESHOLD)
             .append('rect')
@@ -175,8 +152,7 @@ export default function AccountRatesChart({ accounts }) {
             .attr('width', (account) => x(account.saldo) - thresholdX)
             .attr('fill', 'var(--chart-saldo-over)');
 
-        // Drawn after the bars, so the line stays visible on top of any
-        // bar that crosses it.
+        // Drawn after the bars so it stays on top.
         root.append('line')
             .attr('class', 'balance-threshold')
             .attr('x1', thresholdX)

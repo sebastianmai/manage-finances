@@ -14,28 +14,14 @@
 :root{
   --btn-warn: #dc2626;
   --signup-btn: #2563eb;
-  /* Dedicated data-viz colors, kept separate from --btn/--signup-btn: those
-     two happen to be the identical blue in the dark theme, which made the
-     Zinssatz/Basiszins bars indistinguishable there. These stay fixed
-     across both themes instead of following the theme swap. */
+  /* Fixed data-viz colors, independent of theme. */
   --chart-zinssatz: #2563eb;
   --chart-basiszins: #d97706;
-  /* Same green TransactionsPage already uses for a positive amount, reused
-     here so "balance" reads as the same color concept in both places. */
+  /* Same green as a positive amount elsewhere. */
   --chart-saldo: #16a34a;
-  /* The portion of a balance above the deposit-protection threshold --
-     reuses --btn-warn rather than a new hex, so "at risk" stays the same
-     red as every other warning/danger use in this app. */
+  /* Over the deposit-protection threshold. */
   --chart-saldo-over: var(--btn-warn);
-  /* A six-slot categorical ramp for the balance-history overlay (2+
-     accounts plotted as distinct lines). Slots 1-3 alias the existing
-     zinssatz/basiszins/saldo greens/blues/ambers rather than introducing a
-     parallel palette, which is what keeps the pre-existing Total-only and
-     single-account chart views pixel-identical after this generalisation;
-     slots 4-6 extend the ramp for a 4th-6th account. --chart-saldo-over is
-     deliberately excluded -- it is this app's "over the deposit-protection
-     limit" warning red, and reusing it for an ordinary account line would
-     make that signal ambiguous. */
+  /* Categorical ramp for multi-account overlay; slots 1-3 alias existing colors. */
   --chart-series-1: var(--chart-saldo);
   --chart-series-2: var(--chart-zinssatz);
   --chart-series-3: var(--chart-basiszins);

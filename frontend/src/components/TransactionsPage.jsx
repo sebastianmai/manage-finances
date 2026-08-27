@@ -24,11 +24,7 @@ export default function TransactionsPage() {
     const [sort, setSort] = useState({ column: 'transaction_date', direction: 'desc' });
     const [filters, setFilters] = useState({ ...EMPTY_FILTERS });
 
-    // activeFilters is passed explicitly rather than read back from the
-    // filters state closure: that is what keeps a filter change's request
-    // in step with the control that triggered it, and keeps this
-    // callback's dependency list at navigate only, so a filter change can
-    // never re-trigger the mount effect's accounts load.
+    // Filters passed explicitly to avoid stale closures.
     const getTransactions = useCallback(async (activeFilters) => {
         try {
             const params = new URLSearchParams();
@@ -65,8 +61,7 @@ export default function TransactionsPage() {
         }
     }, [navigate]);
 
-    // getAccounts does no 401 navigation -- the transactions fetch already
-    // covers auth. This call exists only to resolve account ids to names.
+    // Resolves account ids to names for the table.
     const getAccounts = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/accounts', {
@@ -87,11 +82,7 @@ export default function TransactionsPage() {
         }
     }, []);
 
-    // Non-blocking by design (D-10): the category filter is suggestions and
-    // filter options, not data this page's rendering depends on, unlike the
-    // accounts fetch above. No 401 navigation either -- the transactions
-    // fetch already covers auth. A failure is logged and the filter's
-    // option list simply stays empty.
+    // Non-blocking: failure just leaves the filter list empty.
     const getCategories = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/categories', {
@@ -122,9 +113,7 @@ export default function TransactionsPage() {
         loadOnMount();
     }, [getTransactions, getAccounts, getCategories]);
 
-    // Stores the next filters immediately and awaits the refetch with that
-    // same object, rather than reading filters back from state -- reading
-    // state back here could race a second change against a stale closure.
+    // Avoids racing a stale filters closure.
     const applyFilter = async (field, value) => {
         const nextFilters = { ...filters, [field]: value };
         setFilters(nextFilters);

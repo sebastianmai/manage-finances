@@ -4,15 +4,7 @@ import AccountMultiSelect from './AccountMultiSelect';
 
 const EMPTY_HISTORY = { months: [], total: [], accounts: [] };
 
-// Sums exactly the given accounts' points over the canonical `months` axis,
-// looked up by month key (not array index) so accounts with sparser
-// histories still align correctly, then rounds the same way the backend's
-// totalSeries does. This deliberately does NOT gate on `include_in_saldo`
-// -- the sum is over whatever the user checked, full stop. The
-// all-accounts-sum-equals-Total expectation from CONTEXT only holds when
-// the checked set happens to equal the include_in_saldo set; a future
-// reader must not "fix" this into a gate, that would silently change what
-// the checkbox sums.
+// Sums checked accounts by month; not gated on include_in_saldo.
 function sumAccountPoints(accounts, months) {
     return months.map((month) => {
         const sum = accounts.reduce((runningSum, account) => {
@@ -23,9 +15,7 @@ function sumAccountPoints(accounts, months) {
     });
 }
 
-// The window at exactly one call site (in the series construction below) is
-// what keeps D-04's identical-values guarantee structural rather than a
-// promise -- every series, in every mode, is narrowed the same way.
+// Filters points to the selected year range.
 function narrowToYearWindow(points, fromYear, toYear) {
     return points.filter((point) => {
         const year = Number(point.month.slice(0, 4));
@@ -75,20 +65,12 @@ export default function StatisticsPage() {
         getBalanceHistory();
     }, []);
 
-    // The year options come from the canonical months axis rather than from
-    // whichever series is currently selected, so the range control does not
-    // shift under the user when they drill into an account with a shorter
-    // history -- every series shares the same dense axis by construction,
-    // which is exactly what the backend guarantees.
+    // Year options come from the canonical months axis, not the selection.
     const years = [...new Set(history.months.map((month) => Number(month.slice(0, 4))))].sort(
         (a, b) => a - b
     );
 
-    // Filtering over history.accounts (backend order), not over
-    // selectedAccountIds (click order), is the entire mechanism behind
-    // stable colours: a line's position in the series array -- and
-    // therefore its colour -- can never depend on which checkbox the user
-    // clicked first.
+    // Ordered by backend order, not click order, for stable colours.
     const selectedAccounts = history.accounts.filter(
         (account) => selectedAccountIds.includes(account.account_id)
     );
@@ -113,10 +95,7 @@ export default function StatisticsPage() {
         }));
     }
 
-    // Narrowing every series through this one shared helper, as the last
-    // construction step, is what keeps D-04's byte-identical guarantee true
-    // under all four modes -- there is no second, mode-specific narrowing
-    // path that could drift from this one.
+    // Same narrowing helper applied to every series, every mode.
     const series = rawSeries.map((oneSeries) => ({
         ...oneSeries,
         points: narrowToYearWindow(oneSeries.points, fromYear, toYear),
@@ -130,8 +109,7 @@ export default function StatisticsPage() {
         ));
     };
 
-    // The clamping exists so the window can never invert into a range that
-    // plots nothing.
+    // Clamped so the range can never invert.
     const handleFromYearChange = (event) => {
         const nextFromYear = event.target.value;
         setFromYear(nextFromYear);
@@ -167,10 +145,7 @@ export default function StatisticsPage() {
                     <div className="flex flex-wrap items-end gap-4">
                         <div className="flex flex-col gap-1">
                             <span className="text-ui-text font-bold text-sm">Accounts:</span>
-                            {/* Zero checked plots Total; 2+ checked overlays
-                                one line per account, ordered by
-                                history.accounts (backend order) so a line's
-                                colour never depends on click order. */}
+                            {/* 0 checked = Total; 2+ = overlay. */}
                             <AccountMultiSelect
                                 accounts={history.accounts}
                                 selectedAccountIds={selectedAccountIds}

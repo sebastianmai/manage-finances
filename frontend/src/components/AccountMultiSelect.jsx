@@ -1,9 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 
-// Summary text shown on the closed button, derived from the same rules
-// StatisticsPage already uses to pick a chart mode: zero selected reads as
-// Total, one selected is named directly, two or more collapse to a count so
-// the button never grows wider than its selection.
+// Button text: Total, one name, or a count.
 function summaryLabel(accounts, selectedAccountIds) {
     if (selectedAccountIds.length === 0) {
         return 'Total (all accounts)';
@@ -15,19 +12,7 @@ function summaryLabel(accounts, selectedAccountIds) {
     return `${selectedAccountIds.length} accounts selected`;
 }
 
-/**
- * App-styled dropdown wrapping the account checkbox list and the "Sum
- * selected" toggle behind a single closed control, so the filter row does
- * not grow with the account count. Fully controlled: the parent owns
- * `selectedAccountIds`/`sumSelected` and receives plain updates through
- * `onToggleAccount`/`onSumSelectedChange` -- this component holds no
- * selection state of its own, only whether the panel is open. The one
- * exception is the "Select all" row, which computes its own next value
- * (every account id, or none) from props already in hand and hands the
- * whole array to `onSelectedAccountIdsChange` in one call, rather than
- * looping `onToggleAccount` -- the parent's setter has to be told the
- * outcome, not the individual clicks that would produce it.
- */
+// Dropdown wrapping the account checkboxes + "Sum selected" toggle.
 export default function AccountMultiSelect({
     accounts,
     selectedAccountIds,
@@ -44,8 +29,7 @@ export default function AccountMultiSelect({
             return undefined;
         }
 
-        // mousedown, not click, so the panel is already gone by the time a
-        // click outside it would otherwise land on something else.
+        // mousedown so the panel closes before the click lands elsewhere.
         const handleOutsideMouseDown = (e) => {
             if (containerRef.current && !containerRef.current.contains(e.target)) {
                 setOpen(false);
@@ -68,9 +52,7 @@ export default function AccountMultiSelect({
         }
     };
 
-    // All-selected is defined against the accounts actually offered here,
-    // so this stays correct even though it never has to think about
-    // include_in_saldo itself.
+    // All-selected against the offered accounts, not include_in_saldo.
     const allSelected = accounts.length > 0
         && accounts.every((account) => selectedAccountIds.includes(account.account_id));
     const sumDisabled = selectedAccountIds.length < 2;
@@ -92,11 +74,7 @@ export default function AccountMultiSelect({
                 }`}
                 aria-haspopup="true"
                 aria-expanded={open}
-                // The visible text alone changes with the selection (Total,
-                // one name, or a count), which would make it an unstable
-                // target to find by accessible name -- the "Accounts:"
-                // prefix here stays constant so the button can always be
-                // located the same way regardless of what is selected.
+                // Stable "Accounts:" prefix keeps the accessible name findable.
                 aria-label={`Accounts: ${summaryLabel(accounts, selectedAccountIds)}`}
                 onClick={handleToggleOpen}
             >
@@ -125,10 +103,7 @@ export default function AccountMultiSelect({
                             {allSelected ? 'Unselect all' : 'Select all'}
                         </button>
                     )}
-                    {/* Every account is offered here, including ones flagged
-                        out of include_in_saldo, mirroring how GET /accounts
-                        returns them all even though the Total deliberately
-                        does not count them. */}
+                    {/* Includes accounts excluded from the Total. */}
                     <div className="mt-1 flex flex-col gap-0.5 max-h-48 overflow-auto">
                         {accounts.map((account) => (
                             <label

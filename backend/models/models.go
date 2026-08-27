@@ -10,48 +10,28 @@ type User struct {
 
 type Account struct {
 	ID string `json:"id"`
-	// UUID is the owning user and is derived exclusively from the session
-	// cookie, never the request body: json:"-" keeps it unreachable to the
-	// decoder on the way in and out of the response on the way out.
+	// Owning user; derived from the session, never the request body.
 	UUID string `json:"-"`
-	// Type is a fixed two-value classification, Haupt or Anlage, enforced
-	// by the column's CHECK constraint with the handler mirroring it at
-	// the API boundary. It used to be a separate free-text field alongside
-	// a Category field with this same constraint -- they turned out to be
-	// the same concept, so Category was dropped and its constraint moved
-	// here.
+	// Haupt or Anlage, enforced by a DB CHECK constraint.
 	Type          string  `json:"type"`
 	AccountNumber string  `json:"account_number"`
 	FullName      string  `json:"full_name"`
 	ShortName     string  `json:"short_name"`
 	Saldo         float64 `json:"saldo"`
-	// ActiveSince is a string, not time.Time, because the SELECT casts the
-	// DATE column to text -- keeps the wire format a plain YYYY-MM-DD and
-	// avoids lib/pq's time.Time round-trip entirely.
+	// Plain YYYY-MM-DD; DATE column cast to text to skip lib/pq's time.Time.
 	ActiveSince string `json:"active_since"`
 	OwnerName   string `json:"owner_name"`
 	Vollmacht   string `json:"vollmacht"`
 	Aktiv       bool   `json:"aktiv"`
-	// IncludeInSaldo gates the account out of the aggregate GET /balance
-	// total when false. It does not gate anything else -- the account is
-	// still returned in full by GET /accounts and still shown in the
-	// accounts table.
+	// Gates this account out of the aggregate GET /balance total only.
 	IncludeInSaldo bool `json:"include_in_saldo"`
-	// Zinssatz and Basiszins are pointers because NULL and 0 are genuinely
-	// different for a numeric rate -- an account with no rate at all must
-	// not report an explicit 0%. Comment follows the Vollmacht precedent
-	// already in this struct instead (NULLIF on the way in, COALESCE on the
-	// way out): for free text there is no meaningful difference between NULL
-	// and the empty string, so a pointer here would buy nothing and would
-	// fork this struct's nullability style for one field.
+	// Pointers: NULL and 0 are genuinely different for a rate.
 	Zinssatz  *float64 `json:"zinssatz"`
 	Basiszins *float64 `json:"basiszins"`
 	Comment   string   `json:"comment"`
 }
 
-// Session is a bearer credential: whoever holds SessionID is logged in as
-// UUID. Both fields carry json:"-" so a future handler cannot accidentally
-// hand out a live session token by dropping a Session into a response.
+// Bearer credential; both fields json:"-" so it can never leak in a response.
 type Session struct {
 	SessionID string `json:"-"`
 	UUID      string `json:"-"`
@@ -59,53 +39,33 @@ type Session struct {
 
 type Transaction struct {
 	ID int64 `json:"id"`
-	// UUID is the owning user and is derived exclusively from the session
-	// cookie, never the request body: json:"-" keeps it unreachable to the
-	// decoder on the way in and out of the response on the way out.
+	// Owning user; derived from the session, never the request body.
 	UUID        string  `json:"-"`
 	AccountID   string  `json:"account_id"`
 	Amount      float64 `json:"amount"`
 	Description string  `json:"description"`
 	Category    string  `json:"category"`
-	// TransactionDate is a string, not time.Time, for the same reason
-	// Account.ActiveSince is: the wire format stays a plain YYYY-MM-DD and
-	// lib/pq's time.Time round-trip is avoided entirely.
+	// Plain YYYY-MM-DD, same reason as Account.ActiveSince.
 	TransactionDate string `json:"transaction_date"`
-	// TransferToAccountID is the empty string when this booking is not a
-	// transfer. There is no separate boolean flag on the wire -- this
-	// single field is what makes a request a transfer.
+	// Empty string means not a transfer.
 	TransferToAccountID string `json:"transfer_to_account_id"`
-	// UpdatedAt is a string, not time.Time, for the same reason
-	// TransactionDate is: the SELECT casts the column to text, keeping the
-	// wire format plain and avoiding lib/pq's time.Time round-trip.
+	// Plain string, same reason as TransactionDate.
 	UpdatedAt string `json:"updated_at"`
 }
 
-// TransactionFilter narrows GetTransactionsByUser to a subset of the owning
-// user's transactions. Empty-means-absent is the contract for every field:
-// a zero-value TransactionFilter matches every row, exactly like calling
-// GetTransactionsByUser with no filter at all. A further optional field
-// (a date range, an amount range) is added by appending it here plus one
-// branch in buildTransactionFilterClause in repository.go -- that is the
-// whole extension.
+// Empty field = unfiltered; zero-value matches every row.
 type TransactionFilter struct {
 	AccountID string
 	Category  string
 }
 
-// BalancePoint is one reconstructed end-of-month balance. Month is a plain
-// YYYY-MM string, matching the YYYY-MM-DD wire format Account.ActiveSince
-// and Transaction.TransactionDate already use.
+// One reconstructed end-of-month balance.
 type BalancePoint struct {
 	Month   string  `json:"month"`
 	Balance float64 `json:"balance"`
 }
 
-// AccountBalanceSeries is one account's full monthly balance history plus
-// the account metadata needed to label and drill into it -- ShortName for
-// the select option text, IncludeInSaldo so the frontend can mirror
-// GetAccounts's "every account is listed, not every account counts toward
-// the total" contract for the drill-down.
+// One account's monthly balance history plus label/drill-down metadata.
 type AccountBalanceSeries struct {
 	AccountID      string         `json:"account_id"`
 	ShortName      string         `json:"short_name"`
@@ -113,12 +73,7 @@ type AccountBalanceSeries struct {
 	Points         []BalancePoint `json:"points"`
 }
 
-// BalanceHistory is the payload for GET /balance/history. Months is the
-// canonical dense month axis; Total and every Accounts[i].Points are
-// guaranteed the same length and the same month sequence as Months -- that
-// alignment is what lets the frontend swap which series it plots without
-// re-deriving an x-domain, and what makes the year-range control a pure
-// slice rather than a second computation (D-04).
+// GET /balance/history payload; Total and every Accounts[i].Points share Months' length/order.
 type BalanceHistory struct {
 	Months   []string               `json:"months"`
 	Total    []BalancePoint         `json:"total"`

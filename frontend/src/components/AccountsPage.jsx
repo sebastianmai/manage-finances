@@ -6,9 +6,7 @@ const saldoFormatter = new Intl.NumberFormat('de-DE', {
     currency: 'EUR',
 });
 
-// Intl's percent style multiplies its input by 100 (2.5 would render as
-// 250%), but the stored value is already a percentage -- so this formats a
-// plain de-DE number and the '%' sign is appended manually below.
+// Percent sign appended manually; value is already a percentage.
 const rateFormatter = new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -21,15 +19,11 @@ function formatRate(value) {
     return `${rateFormatter.format(value)} %`;
 }
 
-// The three numeric-rate/amount columns and the two checkbox columns need
-// their own comparators; every other sortable column falls through to a
-// plain text comparison.
+// Columns needing non-text comparators; others fall through to text sort.
 const NUMERIC_COLUMNS = ['saldo', 'zinssatz', 'basiszins'];
 const BOOLEAN_COLUMNS = ['aktiv', 'include_in_saldo'];
 
-// why: an unset rate is deliberately ranked below every real rate, including
-// a negative one -- coercing null/undefined to 0 would rank an unset rate
-// above a Negativzins, and a negative interest rate is real in this domain.
+// Unset rates sort below real ones, including negative rates.
 function compareNumeric(a, b) {
     const aUnset = a === null || a === undefined;
     const bUnset = b === null || b === undefined;

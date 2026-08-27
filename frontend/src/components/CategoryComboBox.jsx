@@ -1,19 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 
-/**
- * App-styled, ARIA-compliant replacement for the native
- * `<input list>` + `<datalist>` category field. Fully controlled: the
- * parent owns `value` and receives plain next-string updates through
- * `onChange`, both when the user types and when a suggestion (including
- * the "create new" hint row) is selected.
- */
+// Controlled combobox: free text + suggestions, replaces <input list>.
 export default function CategoryComboBox({ id, value, onChange, categories, maxLength = 50 }) {
     const [open, setOpen] = useState(false);
     const [highlightedIndex, setHighlightedIndex] = useState(-1);
     const containerRef = useRef(null);
 
-    // Derived at render rather than mirrored into state, so the panel
-    // contents can never drift out of sync with the controlled value.
     const query = value.trim();
     const lowerQuery = query.toLowerCase();
     const matches = query === ''
@@ -35,9 +27,7 @@ export default function CategoryComboBox({ id, value, onChange, categories, maxL
             return undefined;
         }
 
-        // Clicking anywhere outside the combobox closes the panel without
-        // touching the typed text. mousedown, not click, so the panel is
-        // gone before the click itself lands on whatever was clicked.
+        // Closes on outside click, keeps typed text.
         const handleOutsideMouseDown = (e) => {
             if (containerRef.current && !containerRef.current.contains(e.target)) {
                 setOpen(false);
@@ -55,8 +45,7 @@ export default function CategoryComboBox({ id, value, onChange, categories, maxL
         if (index < matches.length) {
             onChange(matches[index]);
         } else {
-            // The create-hint row is a pure visual affordance: the typed
-            // text was already the value, so this just closes the panel.
+            // Create row: value is already typed, just close.
             onChange(value);
         }
         setOpen(false);
@@ -74,8 +63,7 @@ export default function CategoryComboBox({ id, value, onChange, categories, maxL
     };
 
     const handleClick = () => {
-        // Needed in addition to onFocus: re-clicking an already-focused
-        // input (e.g. right after Escape) fires no focus event at all.
+        // Handles re-click on an already-focused input (no focus event).
         setOpen(true);
     };
 
@@ -115,8 +103,6 @@ export default function CategoryComboBox({ id, value, onChange, categories, maxL
                 e.preventDefault();
                 selectRow(highlightedIndex);
             }
-            // Nothing highlighted: fall through untouched, so the typed
-            // text reaches the surrounding form exactly as typed.
             return;
         }
 

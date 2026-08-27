@@ -11,11 +11,7 @@ export default function EditAccountPage() {
     const [form, setForm] = useState(null);
     const [error, setError] = useState('');
 
-    // There is no GET /accounts/{id} -- the account list is already scoped
-    // to the session user by the backend, so finding the one being edited
-    // client-side gets the same result (and the same 404-shaped experience
-    // for someone else's id, since it simply will not be in this list) as
-    // a dedicated single-account endpoint would, without adding one.
+    // No GET /accounts/{id}; find it client-side in the user's own list.
     const loadAccount = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/accounts', {
@@ -108,9 +104,7 @@ export default function EditAccountPage() {
                 body: JSON.stringify({
                     ...form,
                     saldo: Number(form.saldo),
-                    // Same null-vs-number mapping as account creation: an
-                    // empty rate input must serialize as null, never as the
-                    // number 0.
+                    // Empty rate input serializes as null, not 0.
                     zinssatz: form.zinssatz === '' ? null : Number(form.zinssatz),
                     basiszins: form.basiszins === '' ? null : Number(form.basiszins),
                 }),
@@ -145,11 +139,7 @@ export default function EditAccountPage() {
         );
     }
 
-    // The only way loading finishes with neither loadError set nor form
-    // populated is the 401 branch, which calls navigate() and returns --
-    // that swaps the route but does not unmount this component on the same
-    // tick, so this guards the brief window where a route change is
-    // pending but the redirect target has not rendered yet.
+    // Guards the brief window during a pending 401 redirect.
     if (!form) {
         return null;
     }

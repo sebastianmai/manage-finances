@@ -13,12 +13,7 @@ export default function EditTransactionPage() {
     const [error, setError] = useState('');
     const [categories, setCategories] = useState([]);
 
-    // There is no GET /transactions/{id} -- the transaction list is already
-    // scoped to the session user by the backend, so finding the one being
-    // edited client-side gets the same result (and the same 404-shaped
-    // experience for someone else's id, since it simply will not be in this
-    // list) as a dedicated single-transaction endpoint would, without adding
-    // one.
+    // No GET /transactions/{id}; finds it in the list instead.
     const loadTransaction = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/transactions', {
@@ -37,9 +32,7 @@ export default function EditTransactionPage() {
             }
 
             const { transactions } = await response.json();
-            // useParams yields a string route param, but transaction.id is a
-            // numeric BIGINT -- a bare === would match nothing here (D-12),
-            // so the id is normalised to a string on both sides first.
+            // Route param is a string, id is numeric -- normalise both.
             const transaction = transactions.find(
                 (candidate) => String(candidate.id) === id
             );
@@ -64,11 +57,7 @@ export default function EditTransactionPage() {
         }
     }, [navigate, id]);
 
-    // Non-blocking by design (D-10): the category input still accepts any
-    // text even with no suggestions, unlike the transaction fetch above,
-    // which this page genuinely cannot function without. No 401 navigation
-    // either -- the transaction fetch already covers auth for this page. A
-    // failure is logged and the suggestion list simply stays empty.
+    // Non-blocking: failure just leaves suggestions empty.
     const getCategories = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/categories', {
@@ -105,9 +94,6 @@ export default function EditTransactionPage() {
         }));
     };
 
-    // Kept separate from handleChange: that handler reads e.target.id off
-    // a synthetic event, which CategoryComboBox does not emit -- it calls
-    // back with the plain next string instead.
     const handleCategoryChange = (nextCategory) => {
         setForm((prev) => ({ ...prev, category: nextCategory }));
     };
@@ -139,10 +125,7 @@ export default function EditTransactionPage() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                // No account_id key: the endpoint ignores it and the
-                // repository never names that column when updating a
-                // transaction, so leaving it out here is what makes that
-                // true in the code rather than only in a comment.
+                // No account_id: accounts can't be changed here.
                 body: JSON.stringify({
                     transaction_date: form.transaction_date,
                     category: form.category,
@@ -180,11 +163,7 @@ export default function EditTransactionPage() {
         );
     }
 
-    // The only way loading finishes with neither loadError set nor form
-    // populated is the 401 branch, which calls navigate() and returns --
-    // that swaps the route but does not unmount this component on the same
-    // tick, so this guards the brief window where a route change is
-    // pending but the redirect target has not rendered yet.
+    // Guards the brief window during a 401 redirect.
     if (!form) {
         return null;
     }
@@ -213,10 +192,7 @@ export default function EditTransactionPage() {
                         <label htmlFor="category" className="text-ui-text font-bold">
                             Category:
                         </label>
-                        {/* Free text is still the point here: typing a
-                            category nobody has used yet is a first-class
-                            path, not a fallback, and the backend persists
-                            it on save. */}
+                        {/* Free text: new categories are created on save. */}
                         <CategoryComboBox
                             id="category"
                             value={form.category}

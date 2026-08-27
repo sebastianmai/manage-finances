@@ -117,7 +117,6 @@ func (h *HandlerLayerInstance) LoginUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	//check if user exists and password is correct
 	user, err := h.services.LoginUser(req.Email)
 	if err != nil {
 		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
@@ -223,11 +222,7 @@ func (h *HandlerLayerInstance) GetBalance(w http.ResponseWriter, r *http.Request
 	})
 }
 
-// GetBalanceHistory accepts no query parameters at all: the owning user
-// comes from the session cookie and nothing else, so there is no
-// client-supplied value that could reach the query. The account/year
-// narrowing D-03 and D-04 describe is view state the page applies to this
-// one payload rather than a second server round-trip.
+// No query params -- account/year narrowing happens client-side.
 func (h *HandlerLayerInstance) GetBalanceHistory(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
@@ -332,14 +327,7 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// models.Account carries Aktiv/IncludeInSaldo as plain bool, so a single
-	// decode cannot distinguish an omitted flag from an explicit false -- a
-	// client that predates these fields would silently create a
-	// deactivated account excluded from its own balance. The body is
-	// buffered and unmarshalled twice: once into req, once into a small
-	// pointer-typed struct that CAN represent "absent". r.Body is a
-	// one-shot stream, so it must be read into bytes first rather than
-	// decoded twice directly.
+	// Double-unmarshal: distinguishes omitted flag from explicit false.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -361,18 +349,12 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The decoder cannot have touched UUID (json:"-"), so the session user
-	// is the only possible owner.
+	// UUID never comes from the client.
 	req.UUID = currentUser.ID
-	// Account.ID is tagged json:"id", so unlike UUID a client CAN put an id
-	// in the request body. Assigning here unconditionally overwrites
-	// anything supplied, which is what keeps ids server-generated --
-	// assigning before the decode would let a client choose its own
-	// primary key.
+	// Server-generated id, always overwrites any client-supplied id.
 	req.ID = util.GenerateUUID()
 
-	// These defaults deliberately match the column defaults, so the API and
-	// the database agree on what an omitted flag means.
+	// Defaults match the column defaults.
 	if flags.Aktiv == nil {
 		req.Aktiv = true
 	} else {
@@ -391,10 +373,7 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Mirrors the CHECK constraint at the API boundary so a foreseeable bad
-	// value is a clean 400 instead of a 500 leaking out of the driver. This
-	// does not replace the constraint -- the constraint is what protects
-	// the table from clients that never touch this handler.
+	// Mirrors the DB CHECK constraint for a clean 400.
 	if req.Type != "Haupt" && req.Type != "Anlage" {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Type must be Haupt or Anlage",
@@ -402,9 +381,7 @@ func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Follows the cap already applied to transaction descriptions in
-	// CreateTransaction for the same reason -- the column is VARCHAR(500)
-	// and a too-long value would otherwise surface as a 500.
+	// Column is VARCHAR(500).
 	if len(req.Comment) > 500 {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Comment must be 500 characters or fewer",
@@ -441,10 +418,7 @@ func (h *HandlerLayerInstance) DeleteAccount(w http.ResponseWriter, r *http.Requ
 	}
 
 	vars := mux.Vars(r)
-	// This is a syntax validation gate, not a conversion step -- the
-	// service wants the original path-segment string, not the parsed
-	// value. Failing early with a clean 400 stops a bad id from surfacing
-	// as a raw driver/scan error further down.
+	// Syntax gate: fail clean 400 before a bad id hits the driver.
 	if _, err := uuid.Parse(vars["id"]); err != nil {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Invalid account id",
@@ -459,8 +433,7 @@ func (h *HandlerLayerInstance) DeleteAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Same status and message whether the id belongs to another user or
-	// does not exist at all -- one shared path, no ownership oracle.
+	// No ownership oracle: same response either way.
 	if !deleted {
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Account not found",
@@ -498,10 +471,7 @@ func (h *HandlerLayerInstance) UpdateAccountFlags(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Both flags are plain bool, not pointers: the overview toggles always
-	// send both current values together, this is never a partial patch, so
-	// there is no absent-vs-false ambiguity to resolve here the way
-	// CreateAccount's buffered double-unmarshal has to.
+	// Plain bool, not pointers -- always sent together, never partial.
 	var req struct {
 		Aktiv          bool `json:"aktiv"`
 		IncludeInSaldo bool `json:"include_in_saldo"`
@@ -518,9 +488,7 @@ func (h *HandlerLayerInstance) UpdateAccountFlags(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Same status and message whether the id belongs to another user or
-	// does not exist at all -- one shared path, no ownership oracle,
-	// matching DeleteAccount.
+	// No ownership oracle: same response either way.
 	if !updated {
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Account not found",
@@ -533,10 +501,7 @@ func (h *HandlerLayerInstance) UpdateAccountFlags(w http.ResponseWriter, r *http
 	})
 }
 
-// UpdateAccount replaces every editable field on an existing account (PUT,
-// not PATCH: the body is the full new representation, not a partial diff --
-// UpdateAccountFlags already owns the partial-update case for the two
-// overview-table checkboxes).
+// Full replace (PUT); UpdateAccountFlags handles the partial toggle case.
 func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {
@@ -562,10 +527,7 @@ func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Same buffered double-unmarshal as CreateAccount, and for the same
-	// reason: models.Account carries Aktiv/IncludeInSaldo as plain bool, so
-	// a single decode cannot distinguish an omitted flag from an explicit
-	// false.
+	// Same double-unmarshal as CreateAccount.
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -587,9 +549,7 @@ func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// The row to update is the id in the URL, never one a client could
-	// smuggle into the body -- req.ID is overwritten unconditionally, same
-	// as CreateAccount overwrites it with a server-generated id.
+	// Id comes from the URL, never the body.
 	req.ID = vars["id"]
 	req.UUID = currentUser.ID
 
@@ -632,9 +592,7 @@ func (h *HandlerLayerInstance) UpdateAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Same status and message whether the id belongs to another user or
-	// does not exist at all -- one shared path, no ownership oracle,
-	// matching DeleteAccount and UpdateAccountFlags.
+	// No ownership oracle: same response either way.
 	if !updated {
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Account not found",
@@ -670,13 +628,10 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// The decoder cannot have touched UUID (json:"-"), so the session user
-	// is the only possible owner.
+	// UUID never comes from the client.
 	req.UUID = currentUser.ID
 
-	// Trimmed before the required-fields check below, so a whitespace-only
-	// category is rejected there rather than becoming a whitespace-named
-	// row further down the write path.
+	// Trim before the required-fields check.
 	req.Category = strings.TrimSpace(req.Category)
 
 	if req.AccountID == "" || req.TransactionDate == "" || req.Category == "" || req.Description == "" {
@@ -686,8 +641,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Mirrors the column width now that the value is stored in two places
-	// (transactions.category and categories.name).
+	// Mirrors categories.name's width.
 	if len(req.Category) > 50 {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Category must be 50 characters or fewer",
@@ -702,9 +656,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// The column is VARCHAR(255) and a transfer appends a marker naming the
-	// counterpart account; capping the raw input here keeps the composed
-	// string inside the column no matter which account is named.
+	// Column is VARCHAR(255); leaves room for the transfer marker.
 	if len(req.Description) > 180 {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Description must be 180 characters or fewer",
@@ -721,10 +673,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Resolving both ids against this call proves ownership of both -- the
-	// FK alone only proves an account exists somewhere, not that this user
-	// owns it -- and supplies the short_names needed for transfer
-	// descriptions, with no new query.
+	// Proves ownership of both ids and supplies short_names for transfers.
 	accounts, err := h.services.GetAccounts(currentUser.ID)
 	if err != nil {
 		fmt.Println("CREATE TRANSACTION ERROR:", err)
@@ -742,9 +691,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 		}
 	}
 
-	// Same status and message whether an id belongs to another user or does
-	// not exist at all -- one shared path, no ownership oracle, matching
-	// DeleteAccount.
+	// No ownership oracle: same response either way.
 	if sourceAccount == nil || (isTransfer && destAccount == nil) {
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Account not found",
@@ -765,10 +712,7 @@ func (h *HandlerLayerInstance) CreateTransaction(w http.ResponseWriter, r *http.
 			},
 		}
 	} else {
-		// The magnitude is taken as the absolute value of the entered
-		// amount regardless of its typed sign -- a negative entry must not
-		// silently invert which account is debited. The source leg always
-		// gets the negated magnitude, the destination the positive one.
+		// Sign comes from source/dest, not the typed value.
 		magnitude := math.Abs(req.Amount)
 		legs = []models.Transaction{
 			{
@@ -820,15 +764,7 @@ func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Re
 
 	var filter models.TransactionFilter
 
-	// An absent or empty account_id means unfiltered, not an error. When
-	// present, uuid.Parse is used purely as a syntax gate -- the same role
-	// it plays in DeleteAccount -- so a malformed value fails cleanly with
-	// 400 instead of surfacing as a driver error against the UUID-typed
-	// column. Whether the account actually belongs to this user is
-	// deliberately NOT checked here: the uuid = $1 ownership predicate in
-	// GetTransactionsByUser already narrows a foreign account_id to zero
-	// rows, and a distinct 403/404 here would hand back an ownership oracle
-	// that DeleteAccount, UpdateAccount and UpdateTransaction all avoid.
+	// Empty = unfiltered. Ownership check happens in the query, not here.
 	if accountID := r.URL.Query().Get("account_id"); accountID != "" {
 		if _, err := uuid.Parse(accountID); err != nil {
 			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -839,16 +775,7 @@ func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Re
 		filter.AccountID = accountID
 	}
 
-	// An absent or empty category means unfiltered, same as account_id.
-	// This is an input-bounding gate mirroring the category column's
-	// VARCHAR(50) width -- the same role the description cap in
-	// CreateTransaction and the comment cap in CreateAccount already play --
-	// not a whitelist: a categories table now backs the suggestion list and
-	// the dedup guarantee, but this filter value is deliberately not
-	// validated against it. Doing so would hand back an ownership oracle
-	// (does this category exist for this user?) that the rest of this file
-	// carefully avoids, so there is nothing to validate the value against
-	// beyond its length.
+	// Empty = unfiltered; length-only gate, not a whitelist.
 	if category := r.URL.Query().Get("category"); category != "" {
 		if len(category) > 50 {
 			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -889,10 +816,7 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 	}
 
 	vars := mux.Vars(r)
-	// transaction_id is a BIGINT identity, not a UUID, so the id gate is
-	// ParseInt rather than uuid.Parse. This is a syntax validation gate,
-	// not a conversion convenience, the same role uuid.Parse plays in
-	// DeleteAccount.
+	// BIGINT identity, not a UUID -- ParseInt as syntax gate.
 	transactionID, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
@@ -906,13 +830,9 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	// AccountID may decode from the body but is inert -- the repository's
-	// UPDATE never names that column, so a transaction cannot be moved
-	// between accounts through this endpoint.
+	// AccountID is inert here: a transaction can't change accounts.
 
-	// Trimmed before the required-fields check below, so a whitespace-only
-	// category is rejected there rather than becoming a whitespace-named
-	// row further down the write path.
+	// Trim before the required-fields check.
 	req.Category = strings.TrimSpace(req.Category)
 
 	if req.TransactionDate == "" || req.Category == "" || req.Description == "" {
@@ -922,8 +842,7 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Mirrors the column width now that the value is stored in two places
-	// (transactions.category and categories.name).
+	// Mirrors categories.name's width.
 	if len(req.Category) > 50 {
 		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "Category must be 50 characters or fewer",
@@ -954,9 +873,7 @@ func (h *HandlerLayerInstance) UpdateTransaction(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Same status and message whether the id belongs to another user or
-	// does not exist at all -- one shared path, no ownership oracle,
-	// matching DeleteAccount.
+	// No ownership oracle: same response either way.
 	if !updated {
 		util.WriteJSON(w, http.StatusNotFound, map[string]string{
 			"error": "Transaction not found",

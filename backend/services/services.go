@@ -77,19 +77,7 @@ func (s *ServiceLayerInstance) Logout(sessionID string) error {
 	return s.repository.DeleteSessionByID(sessionID)
 }
 
-// GetBalance sums Saldo across the user's accounts in Go rather than asking
-// Postgres for SUM(saldo). The database column is numeric(10,2), summed
-// exactly server-side; GetAccountsByUser already casts each row to float8
-// before this function ever sees it, so every intermediate here is a
-// float64 approximation and naively summing them can drift off the
-// two-decimal domain (0.10 + 0.20 becomes 0.30000000000000004 rather than
-// 0.3). Rounding to two decimals restores exact parity with the column's own
-// domain: the true sum is always a two-decimal quantity, so the float64
-// result is always within ~1e-13 of it, multiplying by 100 lands within
-// ~1e-11 of an integer, and math.Round recovers that integer exactly.
-// Accounts flagged out of the saldo are skipped from this total only --
-// they are still returned in full by GetAccountsByUser/GET /accounts and
-// still shown in the accounts table.
+// Sums Saldo in Go, rounded to 2dp to correct float64 summation drift.
 func (s *ServiceLayerInstance) GetBalance(userUUID string) (float64, error) {
 	accounts, err := s.repository.GetAccountsByUser(userUUID)
 	if err != nil {
@@ -147,10 +135,7 @@ func (s *ServiceLayerInstance) DeleteTransaction(transactionID int64, userUUID s
 	return s.repository.DeleteTransaction(transactionID, userUUID)
 }
 
-// GetBalanceHistory assembles the GET /balance/history payload: Months and
-// Accounts come straight from the repository's reconstruction, and Total is
-// derived here by totalSeries so the "total balance" gating rule lives in
-// one place, shared with GetBalance.
+// Assembles the GET /balance/history payload; Total shares gating with GetBalance.
 func (s *ServiceLayerInstance) GetBalanceHistory(userUUID string) (models.BalanceHistory, error) {
 	months, accounts, err := s.repository.GetMonthlyBalancesByUser(userUUID)
 	if err != nil {
@@ -164,27 +149,9 @@ func (s *ServiceLayerInstance) GetBalanceHistory(userUUID string) (models.Balanc
 	}, nil
 }
 
-// totalSeries sums each month's balance across every account flagged
-// IncludeInSaldo. Three things are worth stating explicitly:
-//
-// (1) It gates on IncludeInSaldo because that is already what "total
-// balance" means everywhere else in this app -- GetBalance does the same,
-// and a Total line that disagreed with the Home page's headline number
-// would read as a bug. Excluded accounts are still returned in full and
-// still drillable, exactly as GetAccountsByUser still returns them.
-//
-// (2) The rounding is the same defence GetBalance documents at length: the
-// repository hands over float64 approximations of a two-decimal column,
-// naive summation drifts off that domain, and rounding to two decimals
-// recovers the exact value.
-//
-// (3) Lookup is by month key rather than slice index so that a future
-// change to the repository's ordering cannot silently misalign one
-// account's history against another's -- with money, a silently-shifted
-// series is worse than a loud failure.
+// Sums each month across IncludeInSaldo accounts; lookup by month key, not index.
 func totalSeries(months []string, accounts []models.AccountBalanceSeries) []models.BalancePoint {
-	// One month-to-balance map per included account, built once rather than
-	// scanning every account's Points slice once per month.
+	// One map per included account, built once.
 	balancesByAccount := make([]map[string]float64, 0, len(accounts))
 	for _, account := range accounts {
 		if !account.IncludeInSaldo {

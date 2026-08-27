@@ -33,9 +33,7 @@ export default function Home() {
                 const { user: loggedInUser } = await response.json();
                 setUser(loggedInUser);
 
-                // Balance and accounts are fetched independently -- one
-                // failing must not skip the other, so neither block returns
-                // out of the enclosing getUser() early.
+                // Fetched independently so one failure doesn't skip the other.
                 try {
                     const balanceResponse = await fetch("http://localhost:8080/balance", {
                         method: "GET",

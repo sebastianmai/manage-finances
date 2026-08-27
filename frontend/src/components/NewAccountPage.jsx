@@ -26,10 +26,7 @@ export default function NewAccountPage() {
     const [form, setForm] = useState({ ...EMPTY_FORM });
     const [error, setError] = useState('');
 
-    // A create-account form has no data dependency of its own -- /me is
-    // this project's existing auth probe (Navbar.jsx, Home.jsx), and
-    // fetching the whole accounts list purely as a 401 tripwire would be
-    // wasted work this page never uses.
+    // Uses /me as an auth probe; no other data needed here.
     const checkSession = useCallback(async () => {
         try {
             const response = await fetch('http://localhost:8080/me', {
@@ -99,9 +96,7 @@ export default function NewAccountPage() {
                 body: JSON.stringify({
                     ...form,
                     saldo: Number(form.saldo),
-                    // Number('') is 0, and a stored 0 would claim a real 0%
-                    // rate on an account that simply has none -- an empty
-                    // rate input must serialize as null, never as a number.
+                    // Empty rate input serializes as null, not 0.
                     zinssatz: form.zinssatz === '' ? null : Number(form.zinssatz),
                     basiszins: form.basiszins === '' ? null : Number(form.basiszins),
                 }),
