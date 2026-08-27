@@ -339,8 +339,12 @@ describe('TransactionsPage', () => {
       await user.click(screen.getByRole('button', { name: /Amount/ }));
       expect(screen.getByRole('button', { name: /Amount/ }).textContent).toContain('▲');
 
-      await user.click(screen.getByRole('button', { name: /Category/ }));
-      expect(screen.getByRole('button', { name: /Category/ }).textContent).toContain('▲');
+      // Scoped to the table: the Category filter's own trigger button also
+      // matches an unscoped /Category/ name query now that it renders as a
+      // button rather than a <select>.
+      const table = screen.getByRole('table');
+      await user.click(within(table).getByRole('button', { name: /Category/ }));
+      expect(within(table).getByRole('button', { name: /Category/ }).textContent).toContain('▲');
       expect(screen.getByRole('button', { name: /Amount/ }).textContent).not.toMatch(/[▲▼]/);
     });
   });
@@ -598,49 +602,95 @@ describe('TransactionsPage', () => {
       return setup();
     }
 
-    test('the account filter renders an all-accounts option selected by default, and one option per loaded account', async () => {
-      setupWithAccounts();
+    /**
+     * Opens the named filter's dropdown (if not already open), ticks the
+     * named option, then closes the dropdown again via Escape so it never
+     * lingers open across assertions or a second call against a different
+     * filter. Every filtering test goes through this instead of repeating
+     * the open-then-click dance.
+     */
+    async function toggleFilterOption(user, filterLabelPrefix, optionName) {
+      const trigger = screen.getByRole('button', { name: new RegExp(`^${filterLabelPrefix}`) });
+      if (trigger.getAttribute('aria-expanded') !== 'true') {
+        await user.click(trigger);
+      }
+      await user.click(screen.getByLabelText(optionName));
+      await user.keyboard('{Escape}');
+    }
 
-      await screen.findByText(txn1.description);
-
-      const accountSelect = screen.getByLabelText('Account:');
-      expect(accountSelect).toHaveValue('');
-      expect(screen.getByRole('option', { name: 'All accounts' })).toBeInTheDocument();
-      expect(screen.getByRole('option', { name: accountGiro.short_name })).toBeInTheDocument();
-      expect(screen.getByRole('option', { name: accountTages.short_name })).toBeInTheDocument();
-    });
-
-    test('choosing an account issues one further fetch carrying account_id, and the table shows only the returned rows', async () => {
+    test('the account filter trigger reads All accounts by default; opening it reveals one checkbox per loaded account', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
-      fetchMock.mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      expect(screen.getByRole('button', { name: 'Account: All accounts' })).toBeInTheDocument();
 
+      await user.click(screen.getByRole('button', { name: /^Account:/ }));
+
+      expect(screen.getByLabelText(accountGiro.short_name)).toBeInTheDocument();
+      expect(screen.getByLabelText(accountTages.short_name)).toBeInTheDocument();
+    });
+
+    test('ticking two accounts issues one fetch whose URL carries two account_id parameters', async () => {
+      const user = userEvent.setup();
+      setupWithAccounts();
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }));
+
+      await screen.findByText(txn1.description);
+
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
-      expect(screen.getByText(txn1.description)).toBeInTheDocument();
-      expect(screen.queryByText(txn2.description)).not.toBeInTheDocument();
 
-      const [url] = fetchMock.mock.calls[3];
-      expect(url).toBe(`http://localhost:8080/transactions?account_id=${accountGiro.id}`);
+      await toggleFilterOption(user, 'Account:', accountTages.short_name);
+      await screen.findByText(txn2.description);
+
+      const [url] = fetchMock.mock.calls[4];
+      expect(url).toBe(
+        `http://localhost:8080/transactions?account_id=${accountGiro.id}&account_id=${accountTages.id}`
+      );
     });
 
-    test('choosing an account does not refetch /accounts or /categories: total fetch count after one filter change is four', async () => {
+    test('choosing one account does not refetch /accounts or /categories: total fetch count after one filter change is four', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
       fetchMock.mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
-
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
 
       expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(fetchMock.mock.calls[3][0]).not.toBe('http://localhost:8080/accounts');
       expect(fetchMock.mock.calls[3][0]).not.toBe('http://localhost:8080/categories');
+    });
+
+    test('Select all on accounts yields a URL carrying every account id; Unselect all returns to the bare endpoint URL', async () => {
+      const user = userEvent.setup();
+      setupWithAccounts();
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }));
+
+      await screen.findByText(txn1.description);
+
+      await user.click(screen.getByRole('button', { name: /^Account:/ }));
+      await user.click(screen.getByRole('button', { name: 'Select all' }));
+
+      await screen.findByRole('button', { name: /^Account: 2 selected$/ });
+      const [selectAllUrl] = fetchMock.mock.calls[3];
+      expect(selectAllUrl).toBe(
+        `http://localhost:8080/transactions?account_id=${accountGiro.id}&account_id=${accountTages.id}`
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Unselect all' }));
+
+      await screen.findByRole('button', { name: 'Account: All accounts' });
+      const [unselectAllUrl] = fetchMock.mock.calls[4];
+      expect(unselectAllUrl).toBe('http://localhost:8080/transactions');
     });
 
     test('a not-ok response to a filtered fetch shows the existing load-failure message and does not navigate', async () => {
@@ -650,7 +700,7 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
 
       expect(await screen.findByText('Failed to load transactions')).toBeInTheDocument();
       expect(screen.queryByText('navigated:/login')).not.toBeInTheDocument();
@@ -663,29 +713,29 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
 
       expect(await screen.findByText('navigated:/login')).toBeInTheDocument();
     });
 
-    // Rewritten from the bundled-constant version: options now come from
-    // the categories fetch response, proven by CATEGORY_FIXTURE's invented
-    // 'Kinderbetreuung' entry, which never existed in the retired constant
-    // and could only be here because it was re-sourced (D-02, D-11).
-    test('the category filter renders an all-categories option selected by default, plus exactly the categories the backend returned, in order', async () => {
+    // Proves the filter's option source is genuinely the backend response
+    // via CATEGORY_FIXTURE's invented 'Kinderbetreuung' entry, which never
+    // existed in the retired bundled constant (D-02, D-11).
+    test('the category filter offers exactly the categories the backend returned, in order', async () => {
+      const user = userEvent.setup();
       setupWithAccounts();
 
       await screen.findByText(txn1.description);
 
-      const categorySelect = screen.getByLabelText('Category:');
-      expect(categorySelect).toHaveValue('');
-      const optionLabels = within(categorySelect)
-        .getAllByRole('option')
-        .map((option) => option.textContent);
-      expect(optionLabels).toEqual(['All categories', ...CATEGORY_FIXTURE]);
+      await user.click(screen.getByRole('button', { name: /^Category:/ }));
+
+      for (const category of CATEGORY_FIXTURE) {
+        expect(screen.getByLabelText(category)).toBeInTheDocument();
+      }
     });
 
-    test('a failing categories fetch leaves the filter with only its all-categories option, still renders every row, shows no page-level error (D-10)', async () => {
+    test('a failing categories fetch leaves the category filter offering no options, still renders every row, shows no page-level error (D-10)', async () => {
+      const user = userEvent.setup();
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }))
@@ -698,30 +748,31 @@ describe('TransactionsPage', () => {
       expect(screen.getByText(txn2.description)).toBeInTheDocument();
       expect(screen.getByText(txn3.description)).toBeInTheDocument();
 
-      const categorySelect = screen.getByLabelText('Category:');
-      const optionLabels = within(categorySelect)
-        .getAllByRole('option')
-        .map((option) => option.textContent);
-      expect(optionLabels).toEqual(['All categories']);
+      await user.click(screen.getByRole('button', { name: /^Category:/ }));
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
       expect(errorSpy).toHaveBeenCalled();
       expect(screen.queryByText('Failed to load transactions')).not.toBeInTheDocument();
 
       errorSpy.mockRestore();
     });
 
-    test('choosing a category issues a request carrying category and no account parameter', async () => {
+    test('ticking two categories issues one fetch whose URL carries two category parameters', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
-      fetchMock.mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
+        .mockResolvedValueOnce(jsonResponse({ transactions: [] }));
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Category:'), 'Groceries');
-
+      await toggleFilterOption(user, 'Category:', 'Groceries');
       await screen.findByText(txn3.description);
 
-      const [url] = fetchMock.mock.calls[3];
-      expect(url).toBe('http://localhost:8080/transactions?category=Groceries');
+      await toggleFilterOption(user, 'Category:', 'Housing');
+      await screen.findByText('No transactions match your filters.');
+
+      const [url] = fetchMock.mock.calls[4];
+      expect(url).toBe('http://localhost:8080/transactions?category=Groceries&category=Housing');
     });
 
     // Uses the invented category (never part of the old bundled constant)
@@ -734,7 +785,7 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Category:'), 'Kinderbetreuung');
+      await toggleFilterOption(user, 'Category:', 'Kinderbetreuung');
 
       await screen.findByText('No transactions match your filters.');
 
@@ -742,7 +793,7 @@ describe('TransactionsPage', () => {
       expect(url).toBe('http://localhost:8080/transactions?category=Kinderbetreuung');
     });
 
-    test('choosing both an account and a category issues a request carrying both parameters', async () => {
+    test('one account plus one category yields both parameters, account first', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
       fetchMock
@@ -751,10 +802,10 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
 
-      await user.selectOptions(screen.getByLabelText('Category:'), 'Groceries');
+      await toggleFilterOption(user, 'Category:', 'Groceries');
       await screen.findByText(txn1.description);
 
       const [url] = fetchMock.mock.calls[4];
@@ -770,7 +821,7 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
 
       expect(await screen.findByText('No transactions match your filters.')).toBeInTheDocument();
       expect(screen.queryByText('No transactions yet.')).not.toBeInTheDocument();
@@ -785,12 +836,12 @@ describe('TransactionsPage', () => {
 
       expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
 
       expect(await screen.findByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
     });
 
-    test('clicking clear resets both selects to their all option and issues a request at the bare endpoint URL with no query string', async () => {
+    test('clicking clear resets both filters to their all state and issues a request at the bare endpoint URL with no query string', async () => {
       const user = userEvent.setup();
       setupWithAccounts();
       fetchMock
@@ -800,44 +851,21 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
 
-      await user.selectOptions(screen.getByLabelText('Category:'), 'Groceries');
+      await toggleFilterOption(user, 'Category:', 'Groceries');
       await screen.findByText(txn1.description);
 
       await user.click(screen.getByRole('button', { name: 'Clear filters' }));
 
       await screen.findByText(txn2.description);
 
-      expect(screen.getByLabelText('Account:')).toHaveValue('');
-      expect(screen.getByLabelText('Category:')).toHaveValue('');
+      expect(screen.getByRole('button', { name: 'Account: All accounts' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Category: All categories' })).toBeInTheDocument();
 
       const [url] = fetchMock.mock.calls[5];
       expect(url).toBe('http://localhost:8080/transactions');
-    });
-
-    test('re-selecting the all option on the account control alone issues a request carrying only the still-active category parameter', async () => {
-      const user = userEvent.setup();
-      setupWithAccounts();
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1] }))
-        .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
-
-      await screen.findByText(txn1.description);
-
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
-      await screen.findByText(txn3.description);
-
-      await user.selectOptions(screen.getByLabelText('Category:'), 'Groceries');
-      await screen.findByText(txn1.description);
-
-      await user.selectOptions(screen.getByLabelText('Account:'), '');
-      await screen.findByText(txn3.description);
-
-      const [url] = fetchMock.mock.calls[5];
-      expect(url).toBe('http://localhost:8080/transactions?category=Groceries');
     });
 
     test('with a filter active, deleting a row issues a refetch whose URL still carries that filter', async () => {
@@ -851,7 +879,7 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
 
       await user.click(screen.getByRole('button', { name: `Delete ${txn1.description}` }));
@@ -872,13 +900,104 @@ describe('TransactionsPage', () => {
 
       await screen.findByText(txn1.description);
 
-      await user.selectOptions(screen.getByLabelText('Account:'), accountGiro.id);
+      await toggleFilterOption(user, 'Account:', accountGiro.short_name);
       await screen.findByText(txn3.description);
 
       await user.type(screen.getByLabelText('Search descriptions:'), 'run');
 
       expect(screen.getByText(txn1.description)).toBeInTheDocument();
       expect(screen.queryByText(txn3.description)).not.toBeInTheDocument();
+    });
+
+    describe('chip row', () => {
+      test('the chip row is absent before any selection', async () => {
+        setupWithAccounts();
+
+        await screen.findByText(txn1.description);
+
+        expect(screen.queryByLabelText(/^Remove account filter/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/^Remove category filter/)).not.toBeInTheDocument();
+      });
+
+      test('with one account and one category active, exactly two named chips render; the account uuid appears nowhere in the chip row', async () => {
+        const user = userEvent.setup();
+        setupWithAccounts();
+        fetchMock
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1] }));
+
+        await screen.findByText(txn1.description);
+
+        await toggleFilterOption(user, 'Account:', accountGiro.short_name);
+        await screen.findByText(txn3.description);
+
+        await toggleFilterOption(user, 'Category:', 'Groceries');
+        await screen.findByText(txn1.description);
+
+        const accountChipRemove = screen.getByLabelText(
+          `Remove account filter: ${accountGiro.short_name}`
+        );
+        const categoryChipRemove = screen.getByLabelText('Remove category filter: Groceries');
+        expect(accountChipRemove).toBeInTheDocument();
+        expect(categoryChipRemove).toBeInTheDocument();
+        expect(screen.queryByText(accountGiro.id)).not.toBeInTheDocument();
+      });
+
+      test('clicking an account chip\'s x removes only that account and refetches, leaving the category selection and its chip intact', async () => {
+        const user = userEvent.setup();
+        setupWithAccounts();
+        fetchMock
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1] }))
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }));
+
+        await screen.findByText(txn1.description);
+
+        await toggleFilterOption(user, 'Account:', accountGiro.short_name);
+        await screen.findByText(txn3.description);
+
+        await toggleFilterOption(user, 'Category:', 'Groceries');
+        await screen.findByText(txn1.description);
+
+        await user.click(
+          screen.getByLabelText(`Remove account filter: ${accountGiro.short_name}`)
+        );
+
+        await screen.findByText(txn3.description);
+
+        expect(
+          screen.queryByLabelText(`Remove account filter: ${accountGiro.short_name}`)
+        ).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Remove category filter: Groceries')).toBeInTheDocument();
+
+        const [url] = fetchMock.mock.calls[5];
+        expect(url).toBe('http://localhost:8080/transactions?category=Groceries');
+      });
+
+      test('clicking the last remaining chip\'s x returns to the bare endpoint URL and removes the chip row', async () => {
+        const user = userEvent.setup();
+        setupWithAccounts();
+        fetchMock
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn3] }))
+          .mockResolvedValueOnce(jsonResponse({ transactions: [txn1, txn2, txn3] }));
+
+        await screen.findByText(txn1.description);
+
+        await toggleFilterOption(user, 'Account:', accountGiro.short_name);
+        await screen.findByText(txn3.description);
+
+        await user.click(
+          screen.getByLabelText(`Remove account filter: ${accountGiro.short_name}`)
+        );
+
+        await screen.findByText(txn2.description);
+
+        expect(screen.queryByLabelText(/^Remove account filter/)).not.toBeInTheDocument();
+        expect(screen.queryByLabelText(/^Remove category filter/)).not.toBeInTheDocument();
+
+        const [url] = fetchMock.mock.calls[4];
+        expect(url).toBe('http://localhost:8080/transactions');
+      });
     });
   });
 });

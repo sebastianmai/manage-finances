@@ -53,10 +53,13 @@ type Transaction struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-// Empty field = unfiltered; zero-value matches every row.
+// An empty or nil slice means unfiltered for that field. Values within one
+// field are OR-ed together (any match passes); AccountIDs and Categories are
+// then AND-ed against each other. An explicitly-empty non-nil slice behaves
+// identically to nil -- both mean "no constraint on this field".
 type TransactionFilter struct {
-	AccountID string
-	Category  string
+	AccountIDs []string
+	Categories []string
 }
 
 // One reconstructed end-of-month balance.

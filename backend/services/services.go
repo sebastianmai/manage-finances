@@ -161,23 +161,24 @@ func (s *ServiceLayerInstance) CreateBooking(legs []models.Transaction) error {
 	return s.repository.CreateBooking(legs, resolved)
 }
 
-// filterTransactions narrows a broad fetch to a filter's account and/or
-// category, in Go, rather than in the query -- deciding what a request
+// filterTransactions narrows a broad fetch to a filter's accounts and/or
+// categories, in Go, rather than in the query -- deciding what a request
 // returns is the service layer's job, and the row counts in this
 // application are small enough that fetching broadly is not the cost the
-// SQL predicate was buying. Empty filter fields mean unfiltered, per the
-// contract documented on models.TransactionFilter. Only ever drops rows,
-// so the caller's ordering is preserved.
+// SQL predicate was buying. Empty or nil filter slices mean unfiltered, per
+// the contract documented on models.TransactionFilter. Values within one
+// field are a union (OR); AccountIDs and Categories still intersect (AND).
+// Only ever drops rows, so the caller's ordering is preserved.
 func filterTransactions(transactions []models.Transaction, filter models.TransactionFilter) []models.Transaction {
 	filtered := []models.Transaction{}
 	for _, txn := range transactions {
-		if filter.AccountID != "" && txn.AccountID != filter.AccountID {
+		if len(filter.AccountIDs) > 0 && !slices.Contains(filter.AccountIDs, txn.AccountID) {
 			continue
 		}
 		// Case-sensitive, matching the equality predicate the retired SQL
 		// used -- widening what a filter matches is a behaviour change the
 		// frontend has not asked for.
-		if filter.Category != "" && txn.Category != filter.Category {
+		if len(filter.Categories) > 0 && !slices.Contains(filter.Categories, txn.Category) {
 			continue
 		}
 		filtered = append(filtered, txn)

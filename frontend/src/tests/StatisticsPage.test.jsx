@@ -206,6 +206,75 @@ describe('StatisticsPage', () => {
     expect(screen.queryByRole('img', { name: 'Total balance per month' })).not.toBeInTheDocument();
   });
 
+  test('with nothing selected, no account chips render', async () => {
+    const fetchMock = installFetchMock();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ history: HISTORY_FIXTURE }));
+
+    render(<StatisticsPage />);
+    await waitFor(() => expect(screen.getByRole('img')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: /^Remove account:/ })).not.toBeInTheDocument();
+  });
+
+  test('checking GiroA and Tages renders exactly two named chips, one per selection', async () => {
+    const fetchMock = installFetchMock();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ history: HISTORY_FIXTURE }));
+
+    render(<StatisticsPage />);
+    await waitFor(() => expect(screen.getByRole('img')).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await openAccountMenu(user);
+    await user.click(screen.getByLabelText('GiroA'));
+    await user.click(screen.getByLabelText('Tages'));
+    await user.keyboard('{Escape}');
+
+    expect(screen.getByRole('button', { name: 'Remove account: GiroA' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove account: Tages' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove account: Depot' })).not.toBeInTheDocument();
+  });
+
+  test('clicking a chip\'s x removes only that account, leaving the other selection and its chip intact', async () => {
+    const fetchMock = installFetchMock();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ history: HISTORY_FIXTURE }));
+
+    render(<StatisticsPage />);
+    await waitFor(() => expect(screen.getByRole('img')).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await openAccountMenu(user);
+    await user.click(screen.getByLabelText('GiroA'));
+    await user.click(screen.getByLabelText('Tages'));
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', { name: 'Remove account: GiroA' }));
+
+    expect(screen.queryByRole('button', { name: 'Remove account: GiroA' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove account: Tages' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Tages per month' })).toBeInTheDocument();
+    await openAccountMenu(user);
+    expect(screen.getByLabelText('GiroA')).not.toBeChecked();
+    expect(screen.getByLabelText('Tages')).toBeChecked();
+  });
+
+  test('removing the last remaining chip restores the Total line and hides the chip row', async () => {
+    const fetchMock = installFetchMock();
+    fetchMock.mockResolvedValueOnce(jsonResponse({ history: HISTORY_FIXTURE }));
+
+    render(<StatisticsPage />);
+    await waitFor(() => expect(screen.getByRole('img')).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await openAccountMenu(user);
+    await user.click(screen.getByLabelText('GiroA'));
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', { name: 'Remove account: GiroA' }));
+
+    expect(screen.queryByRole('button', { name: /^Remove account:/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Total balance per month' })).toBeInTheDocument();
+  });
+
   test('"Select all" overlays all three accounts; clicking it again ("Unselect all") restores Total', async () => {
     const fetchMock = installFetchMock();
     fetchMock.mockResolvedValueOnce(jsonResponse({ history: HISTORY_FIXTURE }));

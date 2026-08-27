@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
+import FilterMultiSelect from './FilterMultiSelect';
 
 const amountFormatter = new Intl.NumberFormat('de-DE', {
     style: 'currency',
@@ -7,8 +8,8 @@ const amountFormatter = new Intl.NumberFormat('de-DE', {
 });
 
 const EMPTY_FILTERS = {
-    account_id: '',
-    category: '',
+    account_ids: [],
+    categories: [],
 };
 
 export default function TransactionsPage() {
@@ -28,12 +29,16 @@ export default function TransactionsPage() {
     const getTransactions = useCallback(async (activeFilters) => {
         try {
             const params = new URLSearchParams();
-            if (activeFilters.account_id) {
-                params.set('account_id', activeFilters.account_id);
-            }
-            if (activeFilters.category) {
-                params.set('category', activeFilters.category);
-            }
+            // .append, never .set: repeated parameters carry every selected
+            // value, and .set would silently overwrite all but the last.
+            // Accounts emitted before categories so the URL order is
+            // deterministic and assertable.
+            activeFilters.account_ids.forEach((accountId) => {
+                params.append('account_id', accountId);
+            });
+            activeFilters.categories.forEach((category) => {
+                params.append('category', category);
+            });
             const queryString = params.toString();
             const url = `http://localhost:8080/transactions${queryString ? `?${queryString}` : ''}`;
 
@@ -114,10 +119,18 @@ export default function TransactionsPage() {
     }, [getTransactions, getAccounts, getCategories]);
 
     // Avoids racing a stale filters closure.
-    const applyFilter = async (field, value) => {
-        const nextFilters = { ...filters, [field]: value };
+    const applyFilter = async (field, values) => {
+        const nextFilters = { ...filters, [field]: values };
         setFilters(nextFilters);
         await getTransactions(nextFilters);
+    };
+
+    const handleRemoveAccountFilter = (accountId) => {
+        applyFilter('account_ids', filters.account_ids.filter((id) => id !== accountId));
+    };
+
+    const handleRemoveCategoryFilter = (category) => {
+        applyFilter('categories', filters.categories.filter((value) => value !== category));
     };
 
     const handleClearFilters = async () => {
@@ -125,7 +138,7 @@ export default function TransactionsPage() {
         await getTransactions({ ...EMPTY_FILTERS });
     };
 
-    const isFilterActive = filters.account_id !== '' || filters.category !== '';
+    const isFilterActive = filters.account_ids.length > 0 || filters.categories.length > 0;
 
     const accountNamesById = accounts.reduce((map, account) => {
         map[account.id] = account.short_name;
@@ -210,79 +223,67 @@ export default function TransactionsPage() {
             {error && (
                 <p className="text-ui-btn-warn">{error}</p>
             )}
+            <div className="flex flex-col items-center gap-1">
+                <label htmlFor="search" className="text-ui-text font-bold text-sm">
+                    Search descriptions:
+                </label>
+                <div className="relative">
+                    <svg
+                        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden="true"
+                    >
+                        <circle cx="9" cy="9" r="6" />
+                        <line x1="17" y1="17" x2="13.5" y2="13.5" strokeLinecap="round" />
+                    </svg>
+                    <input
+                        className="w-[28rem] max-w-full rounded-full border border-ui-text/20 bg-ui-bg text-ui-text py-2 pl-9 pr-9 focus:outline-none focus:ring-2 focus:border-ui-btn"
+                        type="text"
+                        id="search"
+                        placeholder="e.g. groceries, rent…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                    />
+                    {search && (
+                        <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-ui-text/50 hover:text-ui-text"
+                            aria-label="Clear search"
+                            onClick={() => setSearch('')}
+                        >
+                            ×
+                        </button>
+                    )}
+                </div>
+            </div>
             <div className="flex flex-wrap items-end justify-between gap-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1">
-                        <label htmlFor="search" className="text-ui-text font-bold text-sm">
-                            Search descriptions:
-                        </label>
-                        <div className="relative">
-                            <svg
-                                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
-                                viewBox="0 0 20 20"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                aria-hidden="true"
-                            >
-                                <circle cx="9" cy="9" r="6" />
-                                <line x1="17" y1="17" x2="13.5" y2="13.5" strokeLinecap="round" />
-                            </svg>
-                            <input
-                                className="w-72 max-w-full rounded-full bg-ui-bg text-ui-text py-2 pl-9 pr-9 focus:outline-none focus:ring-2"
-                                type="text"
-                                id="search"
-                                placeholder="e.g. groceries, rent…"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                            />
-                            {search && (
-                                <button
-                                    type="button"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-ui-text/50 hover:text-ui-text"
-                                    aria-label="Clear search"
-                                    onClick={() => setSearch('')}
-                                >
-                                    ×
-                                </button>
-                            )}
-                        </div>
+                        <FilterMultiSelect
+                            label="Account:"
+                            allLabel="All accounts"
+                            options={accounts.map((account) => ({
+                                value: account.id,
+                                label: account.short_name,
+                            }))}
+                            selectedValues={filters.account_ids}
+                            onChange={(values) => applyFilter('account_ids', values)}
+                        />
                     </div>
                     <div className="flex flex-col gap-1">
-                        <label htmlFor="filter-account" className="text-ui-text font-bold text-sm">
-                            Account:
-                        </label>
-                        <select
-                            className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
-                            id="filter-account"
-                            value={filters.account_id}
-                            onChange={(e) => applyFilter('account_id', e.target.value)}
-                        >
-                            <option value="">All accounts</option>
-                            {accounts.map((account) => (
-                                <option key={account.id} value={account.id}>
-                                    {account.short_name}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <label htmlFor="filter-category" className="text-ui-text font-bold text-sm">
-                            Category:
-                        </label>
-                        <select
-                            className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
-                            id="filter-category"
-                            value={filters.category}
-                            onChange={(e) => applyFilter('category', e.target.value)}
-                        >
-                            <option value="">All categories</option>
-                            {categories.map((category) => (
-                                <option key={category} value={category}>
-                                    {category}
-                                </option>
-                            ))}
-                        </select>
+                        <FilterMultiSelect
+                            label="Category:"
+                            allLabel="All categories"
+                            options={categories.map((category) => ({
+                                value: category,
+                                label: category,
+                            }))}
+                            selectedValues={filters.categories}
+                            onChange={(values) => applyFilter('categories', values)}
+                        />
                     </div>
                     {isFilterActive && (
                         <button
@@ -301,6 +302,42 @@ export default function TransactionsPage() {
                     Add booking
                 </NavLink>
             </div>
+            {isFilterActive && (
+                <div className="flex flex-wrap items-center gap-2">
+                    {filters.account_ids.map((accountId) => (
+                        <span
+                            key={`account-${accountId}`}
+                            className="flex items-center gap-1 rounded-full border border-ui-text/20 bg-ui-light-bg text-ui-text text-sm py-1 px-3"
+                        >
+                            {accountNamesById[accountId] || accountId}
+                            <button
+                                type="button"
+                                className="text-ui-text/70 font-bold hover:text-ui-btn-warn"
+                                aria-label={`Remove account filter: ${accountNamesById[accountId] || accountId}`}
+                                onClick={() => handleRemoveAccountFilter(accountId)}
+                            >
+                                ×
+                            </button>
+                        </span>
+                    ))}
+                    {filters.categories.map((category) => (
+                        <span
+                            key={`category-${category}`}
+                            className="flex items-center gap-1 rounded-full border border-ui-text/20 bg-ui-light-bg text-ui-text text-sm py-1 px-3"
+                        >
+                            {category}
+                            <button
+                                type="button"
+                                className="text-ui-text/70 font-bold hover:text-ui-btn-warn"
+                                aria-label={`Remove category filter: ${category}`}
+                                onClick={() => handleRemoveCategoryFilter(category)}
+                            >
+                                ×
+                            </button>
+                        </span>
+                    ))}
+                </div>
+            )}
             <div className="bg-ui-light-bg p-6 rounded-lg shadow-md text-ui-text">
                 {isFilterActive && transactions.length === 0 ? (
                     <p className="text-ui-text/70">No transactions match your filters.</p>

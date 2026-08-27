@@ -109,6 +109,10 @@ export default function StatisticsPage() {
         ));
     };
 
+    const handleRemoveAccount = (accountId) => {
+        setSelectedAccountIds((previousIds) => previousIds.filter((id) => id !== accountId));
+    };
+
     // Clamped so the range can never invert.
     const handleFromYearChange = (event) => {
         const nextFromYear = event.target.value;
@@ -161,39 +165,83 @@ export default function StatisticsPage() {
                                     <label htmlFor="statistics-from-year" className="text-ui-text font-bold text-sm">
                                         From year:
                                     </label>
-                                    <select
-                                        className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
-                                        id="statistics-from-year"
-                                        value={fromYear}
-                                        onChange={handleFromYearChange}
-                                    >
-                                        {years.map((year) => (
-                                            <option key={year} value={year}>
-                                                {year}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <div className="relative">
+                                        <select
+                                            className="h-[2.625rem] appearance-none rounded-full border border-ui-text/20 bg-ui-bg text-ui-text py-2 pl-4 pr-9 focus:outline-none focus:ring-2 focus:border-ui-btn"
+                                            id="statistics-from-year"
+                                            value={fromYear}
+                                            onChange={handleFromYearChange}
+                                        >
+                                            {years.map((year) => (
+                                                <option key={year} value={year}>
+                                                    {year}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <svg
+                                            className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            aria-hidden="true"
+                                        >
+                                            <polyline points="6 8 10 12 14 8" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    </div>
                                 </div>
                                 <div className="flex flex-col gap-1">
                                     <label htmlFor="statistics-to-year" className="text-ui-text font-bold text-sm">
                                         To year:
                                     </label>
-                                    <select
-                                        className="rounded-full bg-ui-bg text-ui-text py-2 px-4 focus:outline-none focus:ring-2"
-                                        id="statistics-to-year"
-                                        value={toYear}
-                                        onChange={handleToYearChange}
-                                    >
-                                        {years.map((year) => (
-                                            <option key={year} value={year}>
-                                                {year}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <div className="relative">
+                                        <select
+                                            className="h-[2.625rem] appearance-none rounded-full border border-ui-text/20 bg-ui-bg text-ui-text py-2 pl-4 pr-9 focus:outline-none focus:ring-2 focus:border-ui-btn"
+                                            id="statistics-to-year"
+                                            value={toYear}
+                                            onChange={handleToYearChange}
+                                        >
+                                            {years.map((year) => (
+                                                <option key={year} value={year}>
+                                                    {year}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <svg
+                                            className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-ui-text/50"
+                                            viewBox="0 0 20 20"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2"
+                                            aria-hidden="true"
+                                        >
+                                            <polyline points="6 8 10 12 14 8" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    </div>
                                 </div>
                             </>
                         )}
                     </div>
+                    {selectedAccounts.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {selectedAccounts.map((account) => (
+                                <span
+                                    key={account.account_id}
+                                    className="flex items-center gap-1 rounded-full border border-ui-text/20 bg-ui-light-bg text-ui-text text-sm py-1 px-3"
+                                >
+                                    {account.short_name}
+                                    <button
+                                        type="button"
+                                        className="text-ui-text/70 font-bold hover:text-ui-btn-warn"
+                                        aria-label={`Remove account: ${account.short_name}`}
+                                        onClick={() => handleRemoveAccount(account.account_id)}
+                                    >
+                                        ×
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    )}
                     <div className="bg-ui-light-bg p-6 rounded-lg shadow-md text-ui-text">
                         <BalanceHistoryChart series={series} />
                     </div>

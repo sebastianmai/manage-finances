@@ -917,26 +917,52 @@ func (h *HandlerLayerInstance) GetTransactions(w http.ResponseWriter, r *http.Re
 
 	var filter models.TransactionFilter
 
-	// Empty = unfiltered. Ownership check happens in the query, not here.
-	if accountID := r.URL.Query().Get("account_id"); accountID != "" {
+	// Repeated parameters are otherwise an unbounded input the service layer
+	// would scan per row -- capped well above any realistic selection.
+	const maxFilterValues = 100
+
+	// Empty values are skipped so a trailing bare parameter still means
+	// unfiltered. Ownership check happens in the query, not here.
+	accountIDs := r.URL.Query()["account_id"]
+	if len(accountIDs) > maxFilterValues {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Too many account_id parameters",
+		})
+		return
+	}
+	for _, accountID := range accountIDs {
+		if accountID == "" {
+			continue
+		}
 		if _, err := uuid.Parse(accountID); err != nil {
 			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "Invalid account id",
 			})
 			return
 		}
-		filter.AccountID = accountID
+		filter.AccountIDs = append(filter.AccountIDs, accountID)
 	}
 
-	// Empty = unfiltered; length-only gate, not a whitelist.
-	if category := r.URL.Query().Get("category"); category != "" {
+	// Empty values are skipped, same reason as above; length-only gate per
+	// value, not a whitelist.
+	categories := r.URL.Query()["category"]
+	if len(categories) > maxFilterValues {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Too many category parameters",
+		})
+		return
+	}
+	for _, category := range categories {
+		if category == "" {
+			continue
+		}
 		if len(category) > 50 {
 			util.WriteJSON(w, http.StatusBadRequest, map[string]string{
 				"error": "Category must be 50 characters or fewer",
 			})
 			return
 		}
-		filter.Category = category
+		filter.Categories = append(filter.Categories, category)
 	}
 
 	transactions, err := h.services.GetTransactions(currentUser.ID, filter)

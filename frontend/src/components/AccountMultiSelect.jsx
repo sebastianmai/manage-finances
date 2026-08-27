@@ -56,6 +56,7 @@ export default function AccountMultiSelect({
     const allSelected = accounts.length > 0
         && accounts.every((account) => selectedAccountIds.includes(account.account_id));
     const sumDisabled = selectedAccountIds.length < 2;
+    const hasSelection = selectedAccountIds.length > 0;
 
     const handleSelectAllToggle = () => {
         onSelectedAccountIdsChange(
@@ -67,10 +68,10 @@ export default function AccountMultiSelect({
         <div className="relative" ref={containerRef} onKeyDown={handleKeyDown}>
             <button
                 type="button"
-                className={`flex min-w-[12rem] items-center justify-between gap-2 rounded-full border py-2 px-4 text-ui-text transition-colors focus:outline-none focus:ring-2 ${
-                    open
+                className={`flex h-[2.625rem] min-w-[12rem] items-center justify-between gap-2 rounded-full border py-2 px-4 text-ui-text transition-colors focus:outline-none focus:ring-2 ${
+                    open || hasSelection
                         ? 'bg-ui-bg border-ui-btn'
-                        : 'bg-ui-bg border-transparent hover:border-ui-text/20'
+                        : 'bg-ui-bg border-ui-text/20 hover:border-ui-text/40'
                 }`}
                 aria-haspopup="true"
                 aria-expanded={open}
