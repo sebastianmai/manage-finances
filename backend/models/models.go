@@ -93,3 +93,11 @@ type ResolvedCategory struct {
 	Name   string
 	Create bool
 }
+
+// UserSettings carries no UUID field: the owning uuid is always a
+// session-derived parameter passed alongside this struct, never a value a
+// request body could populate.
+type UserSettings struct {
+	BalanceThreshold float64 `json:"balance_threshold"`
+	ShowDecimals     bool    `json:"show_decimals"`
+}

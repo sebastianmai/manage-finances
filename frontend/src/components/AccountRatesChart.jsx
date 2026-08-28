@@ -8,8 +8,10 @@ const WIDTH = 640;
 const ROW_HEIGHT = 56;
 const MARGIN = { top: 16, right: 24, bottom: 32, left: 80 };
 
-// Deposit-protection limit, drawn as a reference line.
-const BALANCE_THRESHOLD = 100000;
+// Deposit-protection limit, drawn as a reference line. This is now only
+// the fallback for a user who has never saved a setting -- Home passes the
+// user's saved balanceThreshold once /settings resolves.
+export const DEFAULT_BALANCE_THRESHOLD = 100000;
 
 const RATE_SERIES = [
     { key: 'zinssatz', label: 'Zinssatz', color: 'var(--chart-zinssatz)' },
@@ -28,7 +30,7 @@ const currencyFormatter = new Intl.NumberFormat('de-DE', {
 });
 
 
-export default function AccountRatesChart({ accounts }) {
+export default function AccountRatesChart({ accounts, balanceThreshold = DEFAULT_BALANCE_THRESHOLD }) {
 
     const svgRef = useRef(null);
     const [view, setView] = useState('rates');
@@ -111,7 +113,7 @@ export default function AccountRatesChart({ accounts }) {
         const minSaldo = min(chartAccounts, (account) => account.saldo ?? 0) ?? 0;
 
         const x = scaleLinear()
-            .domain([Math.min(0, minSaldo), Math.max(BALANCE_THRESHOLD, maxSaldo)])
+            .domain([Math.min(0, minSaldo), Math.max(balanceThreshold, maxSaldo)])
             .nice()
             .range([0, innerWidth]);
 
@@ -130,20 +132,20 @@ export default function AccountRatesChart({ accounts }) {
 
         // Bars start at x(0), not the left edge (domain can be negative).
         const zero = x(0);
-        const thresholdX = x(BALANCE_THRESHOLD);
+        const thresholdX = x(balanceThreshold);
 
         // Within-limit portion; excess is a separate rect below.
         groups.append('rect')
             .attr('class', 'balance-bar-within')
-            .attr('x', (account) => Math.min(zero, x(Math.min(account.saldo ?? 0, BALANCE_THRESHOLD))))
+            .attr('x', (account) => Math.min(zero, x(Math.min(account.saldo ?? 0, balanceThreshold))))
             .attr('y', 0)
             .attr('height', y0.bandwidth())
-            .attr('width', (account) => Math.abs(x(Math.min(account.saldo ?? 0, BALANCE_THRESHOLD)) - zero))
+            .attr('width', (account) => Math.abs(x(Math.min(account.saldo ?? 0, balanceThreshold)) - zero))
             .attr('fill', 'var(--chart-saldo)');
 
         // Only accounts over the threshold get this segment.
         groups
-            .filter((account) => (account.saldo ?? 0) > BALANCE_THRESHOLD)
+            .filter((account) => (account.saldo ?? 0) > balanceThreshold)
             .append('rect')
             .attr('class', 'balance-bar-over')
             .attr('x', thresholdX)
@@ -171,8 +173,8 @@ export default function AccountRatesChart({ accounts }) {
             .attr('fill', 'var(--color-ui-text)')
             .attr('fill-opacity', 0.7)
             .attr('font-size', 11)
-            .text(currencyFormatter.format(BALANCE_THRESHOLD));
-    }, [chartAccounts, view]);
+            .text(currencyFormatter.format(balanceThreshold));
+    }, [chartAccounts, view, balanceThreshold]);
 
     if (chartAccounts.length === 0) {
         return (
@@ -182,9 +184,9 @@ export default function AccountRatesChart({ accounts }) {
 
     const svgLabel = view === 'rates'
         ? 'Zinssatz and Basiszins per account'
-        : `Balance per account, with a ${currencyFormatter.format(BALANCE_THRESHOLD)} reference line`;
+        : `Balance per account, with a ${currencyFormatter.format(balanceThreshold)} reference line`;
 
-    const hasOverLimitAccount = chartAccounts.some((account) => (account.saldo ?? 0) > BALANCE_THRESHOLD);
+    const hasOverLimitAccount = chartAccounts.some((account) => (account.saldo ?? 0) > balanceThreshold);
 
     return (
         <div className="flex flex-col gap-2">
@@ -227,7 +229,7 @@ export default function AccountRatesChart({ accounts }) {
                         </span>
                         <span className="flex items-center gap-1.5">
                             <span className="inline-block h-0.5 w-3 border-t-2 border-dashed border-ui-text/60" />
-                            {`${currencyFormatter.format(BALANCE_THRESHOLD)} limit`}
+                            {`${currencyFormatter.format(balanceThreshold)} limit`}
                         </span>
                         {hasOverLimitAccount && (
                             <span className="flex items-center gap-1.5">

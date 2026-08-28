@@ -1,10 +1,19 @@
 import { NavLink } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import AccountRatesChart from './AccountRatesChart';
+import AccountRatesChart, { DEFAULT_BALANCE_THRESHOLD } from './AccountRatesChart';
 
-const balanceFormatter = new Intl.NumberFormat('de-DE', {
+// This is the ONLY formatter in the app that consults show_decimals; every
+// other currency display -- the accounts table, the chart's axis and
+// labels, BalanceHistoryChart, TransactionsPage -- keeps its own formatter
+// untouched. showDecimals: true reproduces the previous balanceFormatter's
+// output exactly, because style:'currency' with EUR already defaults to 2
+// fraction digits -- that equivalence is why this is safe to ship without
+// touching any other display.
+const totalBalanceFormatter = (showDecimals) => new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency: 'EUR',
+    minimumFractionDigits: showDecimals ? 2 : 0,
+    maximumFractionDigits: showDecimals ? 2 : 0,
 });
 
 export default function Home() {
@@ -15,6 +24,13 @@ export default function Home() {
     const [checkingAuth, setCheckingAuth] = useState(true);
     const [balanceError, setBalanceError] = useState("");
     const [accountsError, setAccountsError] = useState("");
+    // Seeded with the defaults, not null: loading, failure and logged-out
+    // all render the same values the page renders today, with no
+    // null-guard needed at either use site below.
+    const [settings, setSettings] = useState({
+        balance_threshold: DEFAULT_BALANCE_THRESHOLD,
+        show_decimals: true,
+    });
 
     useEffect(() => {
         const getUser = async () => {
@@ -69,6 +85,27 @@ export default function Home() {
                     console.error("Error getting accounts:", error);
                     setAccountsError("Failed to load accounts");
                 }
+
+                // Placed last, after /accounts: this keeps the existing
+                // toHaveBeenNthCalledWith(3, '/accounts', ...) test true.
+                // Deliberately the one fetch on this page with no
+                // user-visible error branch, unlike balance and accounts --
+                // a display preference failing to load is not something a
+                // user can act on, and surfacing it would put a red error
+                // on a page that is otherwise rendering correctly.
+                try {
+                    const settingsResponse = await fetch("http://localhost:8080/settings", {
+                        method: "GET",
+                        credentials: "include",
+                    });
+
+                    if (settingsResponse.ok) {
+                        const { settings: userSettings } = await settingsResponse.json();
+                        setSettings(userSettings);
+                    }
+                } catch (error) {
+                    console.error("Error getting settings:", error);
+                }
             } catch (error) {
                 console.error("Error getting user:", error);
                 setUser(null);
@@ -116,7 +153,7 @@ export default function Home() {
                 ) : (
                     <>
                         <p className="text-3xl font-bold tabular-nums text-ui-text">
-                            {balance === null ? "..." : balanceFormatter.format(balance)}
+                            {balance === null ? "..." : totalBalanceFormatter(settings.show_decimals).format(balance)}
                         </p>
                         {balance === 0 && (
                             <p className="text-ui-text/70 text-sm mt-1">
@@ -131,7 +168,7 @@ export default function Home() {
                 {accountsError ? (
                     <p className="text-ui-btn-warn">{accountsError}</p>
                 ) : (
-                    <AccountRatesChart accounts={accounts} />
+                    <AccountRatesChart accounts={accounts} balanceThreshold={settings.balance_threshold} />
                 )}
             </div>
             <div>

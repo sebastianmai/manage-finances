@@ -1,4 +1,5 @@
 import { screen, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import Home from '../components/Home';
 import {
   renderWithRouter,
@@ -23,6 +24,14 @@ describe('Home', () => {
 
   beforeEach(() => {
     fetchMock = installFetchMock();
+    // Load-bearing, not decoration: this is what lets all the
+    // mockResolvedValueOnce chains below keep working untouched. Calls 1-3
+    // (/me, /balance, /accounts) are still satisfied in order by each
+    // test's explicit chain; the new fourth call (/settings) falls through
+    // to this non-Once default instead of resolving to undefined.
+    fetchMock.mockResolvedValue(
+      jsonResponse({ settings: { balance_threshold: 100000, show_decimals: true } })
+    );
   });
 
   afterEach(() => {
@@ -274,6 +283,146 @@ describe('Home', () => {
       expect(errorSpy).toHaveBeenCalled();
 
       errorSpy.mockRestore();
+    });
+  });
+
+  describe('user settings', () => {
+    const switchToBalanceView = async () => {
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('tab', { name: 'Balance' }));
+      return user;
+    };
+
+    test('show_decimals: false drops cents from Total balance and moves the chart aria-label to 250000', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }))
+        .mockResolvedValueOnce(
+          jsonResponse({ settings: { balance_threshold: 250000, show_decimals: false } })
+        );
+
+      renderWithRouter(<Home />);
+
+      const noDecimals = new Intl.NumberFormat('de-DE', {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      });
+      expect(await screen.findByText(normalizeSpace(noDecimals.format(1234.5)))).toBeInTheDocument();
+
+      await switchToBalanceView();
+      expect(
+        screen.getByRole('img', { name: /^Balance per account/ })
+      ).toHaveAttribute('aria-label', expect.stringContaining('250.000'));
+    });
+
+    test('show_decimals: true is a pure no-op, byte-for-byte identical to a user who never opens /settings', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockResolvedValueOnce(
+          jsonResponse({ settings: { balance_threshold: 100000, show_decimals: true } })
+        );
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText(normalizeSpace(EUR.format(1234.5)))).toBeInTheDocument();
+    });
+
+    test('GET /settings not-ok: Total balance keeps 2 decimals, chart keeps the 100000 line, no settings error text', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }))
+        .mockResolvedValueOnce(notOkResponse(500));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText(normalizeSpace(EUR.format(1234.5)))).toBeInTheDocument();
+
+      await switchToBalanceView();
+      expect(
+        screen.getByRole('img', { name: /^Balance per account/ })
+      ).toHaveAttribute('aria-label', expect.stringContaining('100.000'));
+      expect(screen.queryByText(/failed to load settings/i)).not.toBeInTheDocument();
+    });
+
+    test('GET /settings rejects: same fallback, page still renders normally', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [] }))
+        .mockRejectedValueOnce(new Error('network down'));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText(normalizeSpace(EUR.format(1234.5)))).toBeInTheDocument();
+      expect(errorSpy).toHaveBeenCalled();
+
+      errorSpy.mockRestore();
+    });
+
+    test('logged out (/me not-ok): /settings is never requested, only one fetch total', async () => {
+      fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+      renderWithRouter(<Home />);
+
+      expect(await screen.findByText('Welcome to My-Finances')).toBeInTheDocument();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('the settings fetch is the fourth call, issued after /accounts', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 0 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }))
+        .mockResolvedValueOnce(
+          jsonResponse({ settings: { balance_threshold: 100000, show_decimals: true } })
+        );
+
+      renderWithRouter(<Home />);
+
+      await screen.findByRole('img', { name: /Zinssatz and Basiszins/ });
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        'http://localhost:8080/accounts',
+        expect.objectContaining({ method: 'GET', credentials: 'include' })
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        4,
+        'http://localhost:8080/settings',
+        expect.objectContaining({ method: 'GET', credentials: 'include' })
+      );
+    });
+
+    test('show_decimals: false changes only the Total balance figure -- the chart legend/axis formatting is unaffected', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }))
+        .mockResolvedValueOnce(jsonResponse({ balance: 1234.5 }))
+        .mockResolvedValueOnce(jsonResponse({ accounts: [accountWithRates] }))
+        .mockResolvedValueOnce(
+          jsonResponse({ settings: { balance_threshold: 100000, show_decimals: false } })
+        );
+
+      renderWithRouter(<Home />);
+
+      const noDecimals = new Intl.NumberFormat('de-DE', {
+        style: 'currency',
+        currency: 'EUR',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      });
+      expect(await screen.findByText(normalizeSpace(noDecimals.format(1234.5)))).toBeInTheDocument();
+
+      await switchToBalanceView();
+      // The chart's own currencyFormatter always uses maximumFractionDigits:
+      // 0 regardless of show_decimals -- unaffected by the Total's setting.
+      expect(screen.getByText(normalizeSpace('100.000 € limit'))).toBeInTheDocument();
     });
   });
 });

@@ -831,3 +831,51 @@ func TestComposedBalanceHistory(t *testing.T) {
 		}
 	})
 }
+
+// TestSettingsOrDefault exercises settingsOrDefault directly, with no
+// database involved -- a pure-function test following TestTotalSeries's
+// precedent. The repository's upsert is deliberately not unit-tested here
+// because this package has no database test harness; task 1's human-check
+// curl loop is what proves the upsert.
+func TestSettingsOrDefault(t *testing.T) {
+	tests := []struct {
+		name   string
+		stored models.UserSettings
+		found  bool
+		want   models.UserSettings
+	}{
+		{
+			name:   "a never-saved user (not found) gets the 100000/true defaults",
+			stored: models.UserSettings{},
+			found:  false,
+			want:   models.UserSettings{BalanceThreshold: 100000, ShowDecimals: true},
+		},
+		{
+			name:   "a stored row is returned untouched, never overwritten by the defaults",
+			stored: models.UserSettings{BalanceThreshold: 250000, ShowDecimals: false},
+			found:  true,
+			want:   models.UserSettings{BalanceThreshold: 250000, ShowDecimals: false},
+		},
+		{
+			name:   "a stored row that happens to equal the defaults is still the stored row, not a re-defaulted one",
+			stored: models.UserSettings{BalanceThreshold: 100000, ShowDecimals: true},
+			found:  true,
+			want:   models.UserSettings{BalanceThreshold: 100000, ShowDecimals: true},
+		},
+		{
+			name:   "a genuinely-stored zero value is found, so the defaulting rule must not fire",
+			stored: models.UserSettings{},
+			found:  true,
+			want:   models.UserSettings{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := settingsOrDefault(tt.stored, tt.found)
+			if got != tt.want {
+				t.Errorf("settingsOrDefault(%+v, %v) = %+v, want %+v", tt.stored, tt.found, got, tt.want)
+			}
+		})
+	}
+}

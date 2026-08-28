@@ -254,6 +254,35 @@ describe('Navbar', () => {
     expect(await screen.findByRole('link', { name: 'Statistics' })).toBeInTheDocument();
   });
 
+  test('logged in (/me ok): a Settings link with href="/settings" is present', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ user: { first_name: 'Ada' } }));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    const link = await screen.findByRole('link', { name: 'Settings' });
+    expect(link).toHaveAttribute('href', '/settings');
+  });
+
+  test('logged out (/me not-ok): no Settings link', async () => {
+    fetchMock.mockResolvedValueOnce(notOkResponse(401));
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    await screen.findByRole('link', { name: 'Log In' });
+    expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  test('while /me is pending: no Settings link', async () => {
+    const { promise } = deferred();
+    fetchMock.mockReturnValueOnce(promise);
+
+    renderWithRouter(<Navbar theme="light" setTheme={jest.fn()} />);
+
+    expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
+
+    fetchMock.mockClear();
+  });
+
   test('listener cleanup: after unmount, authchange no longer triggers a fetch', async () => {
     fetchMock.mockResolvedValueOnce(notOkResponse(401));
 

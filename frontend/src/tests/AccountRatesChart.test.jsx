@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AccountRatesChart from '../components/AccountRatesChart';
+import { normalizeSpace } from '../test-utils';
 
 const giro = { id: 'a1', short_name: 'Giro', zinssatz: 1.5, basiszins: 0.25, saldo: 5000 };
 const tages = { id: 'a2', short_name: 'Tages', zinssatz: 2, basiszins: null, saldo: 120000 };
@@ -222,5 +223,97 @@ describe('AccountRatesChart', () => {
     const rects = container.querySelectorAll('.account-group rect');
     expect(rects).toHaveLength(2);
     expect(container.querySelector('line.balance-threshold')).not.toBeInTheDocument();
+  });
+});
+
+// Same options the component's currencyFormatter uses, so the expected
+// strings never hardcode locale-specific whitespace (e.g. an NBSP) that
+// isn't worth pinning exactly.
+const currencyFormatter = new Intl.NumberFormat('de-DE', {
+  style: 'currency',
+  currency: 'EUR',
+  maximumFractionDigits: 0,
+});
+
+describe('balanceThreshold prop', () => {
+  test('with no balanceThreshold prop, the reference line, label, legend and bar split all still land on 100000', async () => {
+    const { container } = render(<AccountRatesChart accounts={[tages]} />);
+
+    await switchToBalanceView();
+
+    const line = container.querySelector('line.balance-threshold');
+    expect(line).toBeInTheDocument();
+
+    const label = container.querySelector('svg text[text-anchor="middle"]');
+    expect(normalizeSpace(label.textContent)).toBe(normalizeSpace(currencyFormatter.format(100000)));
+
+    expect(
+      screen.getByText(normalizeSpace(`${currencyFormatter.format(100000)} limit`))
+    ).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^Balance per account/ })).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(currencyFormatter.format(100000))
+    );
+
+    // tages.saldo is 120000, over the default 100000 threshold.
+    expect(container.querySelector('rect.balance-bar-over')).toBeInTheDocument();
+  });
+
+  test('a custom balanceThreshold moves the line, its label, the legend and the svg aria-label', async () => {
+    const { container } = render(<AccountRatesChart accounts={[tages]} balanceThreshold={50000} />);
+
+    await switchToBalanceView();
+
+    const line = container.querySelector('line.balance-threshold');
+    expect(line).toBeInTheDocument();
+
+    const label = container.querySelector('svg text[text-anchor="middle"]');
+    expect(normalizeSpace(label.textContent)).toBe(normalizeSpace(currencyFormatter.format(50000)));
+
+    expect(
+      screen.getByText(normalizeSpace(`${currencyFormatter.format(50000)} limit`))
+    ).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^Balance per account/ })).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(currencyFormatter.format(50000))
+    );
+  });
+
+  test('an account over the default threshold is not over-limit once balanceThreshold is raised past it', async () => {
+    const { container } = render(<AccountRatesChart accounts={[tages]} balanceThreshold={200000} />);
+
+    await switchToBalanceView();
+
+    // tages.saldo is 120000: over the default 100000, but under 200000.
+    expect(container.querySelector('.balance-bar-over')).not.toBeInTheDocument();
+    expect(screen.queryByText('Over limit')).not.toBeInTheDocument();
+  });
+
+  test('the bar split follows a lowered balanceThreshold in the other direction too', async () => {
+    const { container } = render(<AccountRatesChart accounts={[giro]} balanceThreshold={50000} />);
+
+    await switchToBalanceView();
+
+    // giro.saldo is 5000, under both the default and the lowered threshold.
+    expect(container.querySelector('rect.balance-bar-within')).toBeInTheDocument();
+    expect(container.querySelector('rect.balance-bar-over')).not.toBeInTheDocument();
+  });
+
+  test('re-rendering with a changed balanceThreshold while staying in Balance view moves the line', async () => {
+    // tages.saldo (120000) exceeds both thresholds below, so the x-scale's
+    // domain stays fixed at 120000 across the rerender and only the
+    // threshold's position within that fixed domain changes -- isolating
+    // the assertion to the effect's dependency on balanceThreshold, not to
+    // a domain change caused by the threshold itself.
+    const { container, rerender } = render(<AccountRatesChart accounts={[tages]} balanceThreshold={80000} />);
+
+    await switchToBalanceView();
+
+    const firstX1 = container.querySelector('line.balance-threshold').getAttribute('x1');
+
+    rerender(<AccountRatesChart accounts={[tages]} balanceThreshold={20000} />);
+
+    const secondX1 = container.querySelector('line.balance-threshold').getAttribute('x1');
+    expect(secondX1).not.toBe(firstX1);
   });
 });

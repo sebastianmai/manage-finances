@@ -1,5 +1,6 @@
 import sun from '../assets/sun_rm.svg';
 import moon from '../assets/moon_rm.svg';
+import settings from '../assets/settings.svg';
 import { NavLink } from 'react-router-dom';
 import Profile from './Profile';
 import { useState, useEffect } from 'react';
@@ -88,6 +89,23 @@ export default function Navbar({ theme, setTheme }) {
                     <button className=" px-4 py-2 bg-ui-btn text-ui-btn-text rounded font-bold">
                         <NavLink to="/login">Log In</NavLink>
                     </button>
+                    )}
+                    {/*
+                        Gated on user, unlike the always-visible theme toggle
+                        below: /settings loads through GET /settings and
+                        bounces a session-less visitor to /login, so showing
+                        the gear logged-out would be a dead end -- same
+                        reasoning that already gates Profile.
+                    */}
+                    {!checkingAuth && user && (
+                        <NavLink to="/settings" className="px-4 py-2 inline-flex font-bold items-center">
+                            <img
+                                src={settings}
+                                alt="Settings"
+                                className="h-6 w-6"
+                                style={theme === 'dark' ? { filter: 'brightness(0) invert(1)' } : undefined}
+                            />
+                        </NavLink>
                     )}
                     <button className="px-4 py-2" onClick={handleClick}>
                         <img

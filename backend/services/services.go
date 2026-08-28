@@ -4,6 +4,8 @@ import (
 	"backend/models"
 	"backend/repository"
 	"cmp"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -196,6 +198,38 @@ func (s *ServiceLayerInstance) GetTransactions(userUUID string, filter models.Tr
 
 func (s *ServiceLayerInstance) GetCategories(userUUID string) ([]string, error) {
 	return s.repository.GetCategoriesByUser(userUUID)
+}
+
+// defaultUserSettings reproduces the constant the accounts Balance chart
+// hardcoded before this table existed, so nobody's view changes until they
+// choose to change it.
+var defaultUserSettings = models.UserSettings{BalanceThreshold: 100000, ShowDecimals: true}
+
+// settingsOrDefault is a pure function, precisely so it can be tested with
+// no database, following resolveCategoryName's and totalSeries's
+// precedent. A missing row is not an error: a user who has never opened
+// /settings is not a failure case, so found (not the zero value of
+// stored) is what decides whether the defaults apply.
+func settingsOrDefault(stored models.UserSettings, found bool) models.UserSettings {
+	if !found {
+		return defaultUserSettings
+	}
+	return stored
+}
+
+func (s *ServiceLayerInstance) GetSettings(userUUID string) (models.UserSettings, error) {
+	stored, err := s.repository.GetSettingsByUser(userUUID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return settingsOrDefault(models.UserSettings{}, false), nil
+		}
+		return models.UserSettings{}, fmt.Errorf("retrieving settings: %w", err)
+	}
+	return settingsOrDefault(stored, true), nil
+}
+
+func (s *ServiceLayerInstance) UpdateSettings(userUUID string, settings models.UserSettings) error {
+	return s.repository.UpsertSettings(userUUID, settings)
 }
 
 func (s *ServiceLayerInstance) UpdateTransaction(userUUID string, txn models.Transaction) (bool, error) {

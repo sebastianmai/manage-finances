@@ -334,6 +334,102 @@ func (h *HandlerLayerInstance) GetCategories(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+func (h *HandlerLayerInstance) GetSettings(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	user, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	settings, err := h.services.GetSettings(user.ID)
+	if err != nil {
+		fmt.Println("GET SETTINGS ERROR:", err)
+		http.Error(w, "Failed to retrieve settings", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"settings": settings,
+	})
+}
+
+func (h *HandlerLayerInstance) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: No session cookie",
+		})
+		return
+	}
+
+	currentUser, err := h.services.GetUserBySession(cookie.Value)
+	if err != nil {
+		util.WriteJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "Unauthorized: Invalid session",
+		})
+		return
+	}
+
+	var req struct {
+		BalanceThreshold float64 `json:"balance_threshold"`
+		// Pointer, unlike UpdateAccountFlags's plain bools: on a
+		// full-replace PUT an absent boolean is indistinguishable from an
+		// explicit false and would silently flip the user's setting.
+		ShowDecimals *bool `json:"show_decimals"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ShowDecimals == nil {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "show_decimals is required",
+		})
+		return
+	}
+
+	// encoding/json already rejects literal NaN and Infinity, so these two
+	// guards are for any future non-JSON caller rather than dead code
+	// pretending to catch a live case.
+	if math.IsNaN(req.BalanceThreshold) || math.IsInf(req.BalanceThreshold, 0) || req.BalanceThreshold <= 0 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Balance threshold must be a positive number",
+		})
+		return
+	}
+	// DECIMAL(12, 2) runs out at 1e10.
+	if req.BalanceThreshold >= 1e10 {
+		util.WriteJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "Balance threshold is too large",
+		})
+		return
+	}
+
+	if err := h.services.UpdateSettings(currentUser.ID, models.UserSettings{
+		BalanceThreshold: req.BalanceThreshold,
+		ShowDecimals:     *req.ShowDecimals,
+	}); err != nil {
+		fmt.Println("UPDATE SETTINGS ERROR:", err)
+		http.Error(w, "Failed to update settings", http.StatusInternalServerError)
+		return
+	}
+
+	util.WriteJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Settings updated successfully",
+	})
+}
+
 func (h *HandlerLayerInstance) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("session_id")
 	if err != nil {

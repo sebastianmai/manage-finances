@@ -757,3 +757,44 @@ func (r *RepositoryLayerInstance) GetCategoriesByUser(userUUID string) ([]string
 
 	return categories, nil
 }
+
+// balance_threshold::float8 follows GetAccountsByUser's saldo::float8
+// precedent for scanning a DECIMAL into a Go float64. The bare
+// sql.ErrNoRows on a miss (not wrapped in fmt.Errorf) is deliberate: the
+// service layer's errors.Is check needs to tell "no row yet" apart from
+// every other failure, and wrapping it here would make that ambiguous.
+func (r *RepositoryLayerInstance) GetSettingsByUser(userUUID string) (models.UserSettings, error) {
+	var settings models.UserSettings
+
+	err := r.db.QueryRow(`
+		SELECT balance_threshold::float8, show_decimals FROM user_settings WHERE uuid = $1
+	`, userUUID).Scan(&settings.BalanceThreshold, &settings.ShowDecimals)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.UserSettings{}, sql.ErrNoRows
+		}
+		return models.UserSettings{}, fmt.Errorf("retrieving settings: %w", err)
+	}
+
+	return settings, nil
+}
+
+// UpsertSettings returns only error, no rows-affected bool: unlike
+// UpdateAccountFlags there is no not-found case to report -- the row is
+// created on first save via the ON CONFLICT branch.
+func (r *RepositoryLayerInstance) UpsertSettings(userUUID string, settings models.UserSettings) error {
+	_, err := r.db.Exec(`
+		INSERT INTO user_settings (uuid, balance_threshold, show_decimals)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (uuid) DO UPDATE SET
+			balance_threshold = EXCLUDED.balance_threshold,
+			show_decimals = EXCLUDED.show_decimals
+	`, userUUID, settings.BalanceThreshold, settings.ShowDecimals)
+
+	if err != nil {
+		return fmt.Errorf("saving settings: %w", err)
+	}
+
+	return nil
+}
